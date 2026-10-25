@@ -30,7 +30,7 @@ dotnet build -c Release -p:ValheimDir="D:\SteamLibrary\steamapps\common\Valheim"
 dotnet build -c Release ...
 bun provisioner/pack.ts      # dist/Provisioner-<version>.zip
 bun provisioner/publish.ts   # Thunderstore; needs THUNDERSTORE_TEAM and a team token
-bun provisioner/release.ts   # GitHub: tag v<version>, release with the zip and changelog notes
+bun provisioner/release.ts   # GitHub: tag provisioner-v<version>, release with the zip and changelog notes
 ```
 
 Bump `VERSION`, `Versions.md`, `provisioner/manifest.json` and `provisioner/CHANGELOG.md` together, commit and push, then run the three steps. Every version is on Thunderstore and on GitHub Releases with the same zip.

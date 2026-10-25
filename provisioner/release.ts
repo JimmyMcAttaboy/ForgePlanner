@@ -1,4 +1,4 @@
-// GitHub release for the current version: tag v<version> on HEAD, release
+// GitHub release for the current version: tag provisioner-v<version> on HEAD, release
 // notes from provisioner/CHANGELOG.md, the packed zip attached.
 //   bun provisioner/release.ts   (after bun provisioner/pack.ts, on a pushed commit)
 // Needs the GitHub CLI (gh) logged in with push rights to this repository.
@@ -6,7 +6,8 @@ import { $ } from "bun";
 
 const root = `${import.meta.dir}/..`;
 const version = (await Bun.file(`${root}/VERSION`).text()).trim();
-const tag = `v${version}`;
+// Prefixed: this repository also carries ForgePlanner's own v<version> tags.
+const tag = `provisioner-v${version}`;
 const zip = `${root}/dist/Provisioner-${version}.zip`;
 if (!(await Bun.file(zip).exists())) throw new Error(`${zip} missing; run bun provisioner/pack.ts`);
 
