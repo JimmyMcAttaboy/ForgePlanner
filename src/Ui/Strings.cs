@@ -57,7 +57,24 @@ public static class L {
     public static string TotemFar {
         get { return T("too far, last seen numbers", "далеко, числа последнего осмотра"); }
     }
-    public static string PinStale { get { return T("plan changed, refresh", "план изменён, обновите"); } }
+    public static string PinStale { get { return T("no storage snapshot", "нет снимка хранилища"); } }
+
+    /* Снимок хранилища: что лежит в сундуках рядом, когда и где снят. */
+    public static string UpdateSnapshot { get { return T("Update storage snapshot", "Обновить снимок хранилища"); } }
+    static string Clock(System.DateTime at) { return at.ToString("HH:mm"); }
+    /// <summary>«Storage snapshot: 14 chests · 14:05 · 3 m from here».</summary>
+    public static string SnapshotLine(int boxes, System.DateTime at, int metres) {
+        return T("Storage snapshot: " + boxes + (boxes == 1 ? " chest" : " chests") + " · " + Clock(at)
+                     + (metres >= 0 ? " · " + metres + " m from here" : ""),
+                 "Снимок хранилища: сундуков " + boxes + " · " + Clock(at)
+                     + (metres >= 0 ? " · " + metres + " м отсюда" : ""));
+    }
+    public static string SnapshotEmpty(System.DateTime at, int metres) {
+        return T("Storage snapshot taken away from storage: 0 chests · " + Clock(at)
+                     + (metres >= 0 ? " · " + metres + " m from here" : ""),
+                 "Снимок хранилища снят вдали от сундуков: 0 сундуков · " + Clock(at)
+                     + (metres >= 0 ? " · " + metres + " м отсюда" : ""));
+    }
     /// <summary>Строка плана на закреплённой панели: «×2  ур. 4». Без уровня,
     /// если у вещи его нет (quality = 0).</summary>
     public static string PinPlanRow(int qty, int quality) {
@@ -74,13 +91,13 @@ public static class L {
     public static string HintPinned {
         get {
             return T("Pinned parts stay on screen after the window closes. "
-                     + "To gather keeps what you were short when you pinned it "
-                     + "and counts what you pick up. Refresh it at your base "
-                     + "to recount your chests. Open the Esc menu to drag the panel.",
+                     + "Pinned materials remember your chests from the storage snapshot "
+                     + "and count your backpack live. Update the snapshot at your base. "
+                     + "Open the Esc menu to drag the panel.",
                      "Закреплённое остаётся на экране после закрытия окна. "
-                     + "«Нужно собрать» запоминает, чего не хватало при закреплении, "
-                     + "и считает, что вы подобрали. Обновите его дома, чтобы "
-                     + "пересчитать сундуки. Перетащить панель можно в меню Esc.");
+                     + "Закреплённые материалы помнят сундуки по снимку хранилища "
+                     + "и считают рюкзак вживую. Обновляйте снимок дома. "
+                     + "Перетащить панель можно в меню Esc.");
         }
     }
     /* Карточка предмета при наведении. Названия характеристик свои, а не из
@@ -285,7 +302,7 @@ public static class L {
     public static string ColLevel { get { return T("Item level", "Уровень предмета"); } }
     public static string ColQty { get { return T("Quantity", "Количество"); } }
     public static string TotalItems { get { return T("Items total: ", "Всего предметов: "); } }
-    public static string ToGather { get { return T("To gather", "Нужно собрать"); } }
+    public static string ToGather { get { return T("Materials", "Материалы"); } }
     public static string Processing { get { return T("Processing", "Переработка"); } }
     public static string StationsNeeded { get { return T("Stations", "Станки"); } }
     public static string Metres { get { return T(" m", " м"); } }

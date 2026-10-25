@@ -182,6 +182,11 @@ public static class PinHud {
     /// метод зовётся каждый кадр.</summary>
     static bool Show(bool plannerVisible) {
         if (!Enabled || !Pin.Any || Planner.Cart.Count == 0) return false;
+        // Каталог рецептов строился только при открытии окна. Без него план
+        // раскладывается в пустоту, и после входа в мир панель говорила
+        // «Всё собрано», пока окно не откроют. Строим сами; мир не готов:
+        // панель ждёт. Готовый каталог: проверка ничего не стоит.
+        if (!GameData.Build()) return false;
         // Окно показывает те же числа крупнее и подробнее. Две копии одного
         // ответа на экране — это не вдвое полезнее, это мельтешение.
         if (plannerVisible) return false;
@@ -270,17 +275,20 @@ public static class PinHud {
         tle.minWidth = 0;
         var tools = UiKit.Rect(head, "tools");
         UiKit.Horizontal(tools, 3);
-        // Пересчитать «Нужно собрать», не открывая окна: вернулся к сундукам,
-        // открыл Esc, нажал. Видна, только пока эта часть закреплена.
+        // Обновить снимок хранилища, не открывая окна: вернулся к сундукам,
+        // открыл Esc, нажал. Видна, только пока «Материалы» закреплены.
         var refresh = UiKit.Button(tools, "", 22, 18, () => { Pin.Snapshot(); _dirty = true; });
         var rrt = UiKit.Rect((RectTransform)refresh.transform, "icon");
         rrt.anchorMin = rrt.anchorMax = rrt.pivot = new Vector2(0.5f, 0.5f);
         rrt.sizeDelta = new Vector2(13f, 13f);
         var rimg = rrt.gameObject.AddComponent<Image>();
-        rimg.sprite = Art.Get("refresh");
+        // Значок сундука из самой игры: это снимок хранилища.
+        var chest = GameData.Get(GameData.PieceId("piece_chest_wood"));
+        rimg.sprite = chest != null && chest.Icon != null ? chest.Icon : Art.Get("refresh");
         rimg.preserveAspect = true;
         rimg.raycastTarget = false;
-        rimg.color = rimg.sprite != null ? UiKit.Ink : Color.clear;
+        rimg.color = chest != null && chest.Icon != null ? Color.white
+                   : rimg.sprite != null ? UiKit.Ink : Color.clear;
         _refresh = refresh.gameObject;
         UiKit.Button(tools, "\u2212", 22, 18, () => Rescale(-0.1f), 14);
         UiKit.Button(tools, "+", 22, 18, () => Rescale(0.1f), 14);
@@ -331,15 +339,12 @@ public static class PinHud {
     }
 
     static void Refresh() {
-        // Закреплено «Нужно собрать», а снимка нет (файл из старой версии):
-        // снимаем сейчас, когда игрок и сундуки вокруг уже на месте.
-        if (Pin.Gather && Pin.TargetsOf == 0) Pin.Snapshot();
         _title.text = L.Pinned;
         // Тотем выгрузился — числа по нему застыли. На панели нет строк
         // плана, где это видно в окне, поэтому говорим в заголовке.
         if (PlanTotems.AnyFar(Pin.Items))
             _title.text += "  <size=85%><color=#8A8172>" + L.TotemFarShort + "</color></size>";
-        // План правили после снимка «Нужно собрать»: числа уже не про него.
+        // Материалы закреплены без снимка хранилища: сундуки не учтены.
         else if (Pin.Stale)
             _title.text += "  <size=85%><color=#8A8172>" + L.PinStale + "</color></size>";
 
@@ -366,7 +371,7 @@ public static class PinHud {
         // заказе и значит «всё собрано».
         bool all = all0.Count > 0 && all0.All(r => r.Done);
         _empty.gameObject.SetActive(Pin.Gather && (rows.Count == 0 || all));
-        if (rows.Count == 0 || all) _empty.text = L.PinDone;
+        if (rows.Count == 0 || all) _empty.text = !Pin.HasSnapshot ? L.PinStale : L.PinDone;
 
         int shown = Mathf.Min(rows.Count, Mathf.Max(1, MaxRows));
         for (int i = 0; i < shown; i++) {
@@ -449,7 +454,8 @@ public static class PinHud {
             _icon.sprite = it != null ? it.Icon : null;
             _icon.color = _icon.sprite != null ? Color.white : Color.clear;
             _name.text = GameData.NameOf(r.Id);
-            _need.text = r.Have + " / " + r.Need;
+            // Только то, за чем идти: сколько ещё добыть.
+            _need.text = Mathf.Max(0, r.Left).ToString();
             // Собранное гаснет целиком, вместе с названием: строка должна
             // читаться как вычеркнутая, а не как «тут что-то не так с числом».
             _need.color = r.Done ? UiKit.Faint : UiKit.Gold;

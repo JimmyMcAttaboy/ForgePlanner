@@ -94,27 +94,33 @@ The marks are part of the plan: they are saved with it and pinned with it.
 ## Pin the plan
 
 Both lists in the window have a **pin** next to their title: **Craft plan** and
-**To gather**. Pin one or both and close the window; they stay on screen in a
+**Materials**. Pin one or both and close the window; they stay on screen in a
 small panel. Gold means pinned.
 
 **The pinned plan follows the window.** Change a level or a quantity and the
 panel changes with it. Clear the plan and the panel empties.
 
-**The pinned To gather list remembers what you were short.** Pin it at your base
-and it counts your backpack and nearby chests, then keeps only what is missing.
-Out in the field the totals stay put and fill in as you pick things up:
-`12 / 58`. Back at your chests, press the **refresh** arrow next to the pin to
-count again. If you change the plan after pinning, the arrow turns gold and the
-panel title says so.
+**Pinned materials use a storage snapshot.** Pin them at your base and the mod
+counts everything in the chests around you, every item, not only what the plan
+needs, and remembers it. Your backpack is always counted live. Out in the field
+the panel shows only what you still have to get, and it goes down as you pick
+things up. You can change the plan out there too: the snapshot already knows
+what is in your chests. Back home, press **Update storage snapshot** to count
+your chests again.
+
+Under the Materials title the window says where the snapshot came from: how
+many chests, when, and how far you are from where it was taken. A snapshot with
+no chests, taken away from your base by mistake, is shown in red, and the
+button turns gold.
 
 Clicks pass straight through the panel. While the Esc menu is open you can drag
-it somewhere else, recount with the refresh arrow, make it bigger or smaller
-with **−** and **+**, or unpin everything with **×**.
+it somewhere else, update the storage snapshot with the chest button, make it
+bigger or smaller with **−** and **+**, or unpin everything with **×**.
 
-When only To gather is pinned, the icons of what is planned sit under the title,
-so a line like **Stone 0 / 94** says what it is for. Gathered lines sink to the
-bottom and dim; set **HideGathered** in the config to drop them from the panel
-altogether.
+When only Materials is pinned, the icons of what is planned sit under the
+title, so a line like **Stone 94** says what it is for. Gathered lines sink to
+the bottom and dim; set **HideGathered** in the config to drop them from the
+panel altogether.
 
 ![The pinned plan next to the minimap](media/05-pinned.png)
 

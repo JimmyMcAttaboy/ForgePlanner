@@ -114,7 +114,7 @@ public static class PlanStore {
         return sb.ToString();
     }
 
-    /* Формат — строки через табуляцию, чтобы файл читался и правился руками:
+    /* Формат: строки через табуляцию, чтобы файл читался и правился руками.
 
            # ForgePlanner
            [plan]
@@ -122,15 +122,19 @@ public static class PlanStore {
            [pinned]
            plan
            gather
-           [gather]
-           sig	-1234567
-           wolfpelt	58	2
+           recipes
+           [chests]
+           boxes	14
+           at	638655123450000000
+           pos	12.5,30.0,-88.1
+           wolfpelt	26
 
        id, сколько, уровень, уровни уже сделанных экземпляров. В [pinned]:
-       какие части плана закреплены. В [gather]: снимок недостачи (id,
-       сколько не хватало, сколько было в рюкзаке) и отпечаток плана, по
-       которому он снят, см. Pin.Snapshot. Старый раздел [pin] (копия плана
-       до того, как закреплённое стало самим планом) читается как «gather». */
+       какие части плана закреплены, и recipes, если выбран вид «Рецепты».
+       В [chests]: снимок хранилища, см. Pin.Snapshot: сколько сундуков,
+       когда (ticks) и где, потом сколько каждого предмета в них лежало.
+       Старый раздел [pin] (копия плана до того, как закреплённое стало самим
+       планом) читается как закреплённые «Материалы» без снимка. */
 
     static string Snapshot() {
         var sb = new StringBuilder();
@@ -139,12 +143,19 @@ public static class PlanStore {
         sb.Append("[pinned]").Append('\n');
         if (Pin.Plan) sb.Append("plan").Append('\n');
         if (Pin.Gather) sb.Append("gather").Append('\n');
-        if (Pin.Gather) {
-            sb.Append("[gather]").Append('\n');
-            sb.Append("sig").Append('\t').Append(Pin.TargetsOf).Append('\n');
-            foreach (var kv in Pin.Targets)
-                sb.Append(kv.Key).Append('\t').Append(kv.Value.Need)
-                  .Append('\t').Append(kv.Value.Bag).Append('\n');
+        // Вид запоминается: без него после перезахода окно открывалось в
+        // «Сырьё», а снимок закрепляли, глядя на «Рецепты».
+        if (!Pin.RawView) sb.Append("recipes").Append('\n');
+        if (Pin.Gather && Pin.HasSnapshot) {
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            sb.Append("[chests]").Append('\n');
+            sb.Append("boxes").Append('\t').Append(Pin.Boxes).Append('\n');
+            sb.Append("at").Append('\t').Append(Pin.At.Ticks).Append('\n');
+            sb.Append("pos").Append('\t').Append(Pin.Where.x.ToString("0.0", inv)).Append(',')
+              .Append(Pin.Where.y.ToString("0.0", inv)).Append(',')
+              .Append(Pin.Where.z.ToString("0.0", inv)).Append('\n');
+            foreach (var kv in Pin.Chests)
+                sb.Append(kv.Key).Append('\t').Append(kv.Value).Append('\n');
         }
         return sb.ToString();
     }
@@ -168,29 +179,36 @@ public static class PlanStore {
         var plan = new List<Entry>();
         var pin = new List<Entry>();
         List<Entry> into = null;
-        bool flags = false, gather = false, pinPlan = false, pinGather = false;
-        var targets = new Dictionary<string, Pin.Target>();
-        int targetsOf = 0;
+        bool flags = false, store = false, pinPlan = false, pinGather = false, recipes = false;
+        bool snapshot = false;
+        var chests = new Dictionary<string, int>();
+        int boxes = 0;
+        long at = 0;
+        var where = Vector3.zero;
         try {
             foreach (var raw in File.ReadAllLines(_path)) {
                 var line = raw.Trim();
                 if (line.Length == 0 || line.StartsWith("#")) continue;
-                if (line == "[plan]") { into = plan; flags = gather = false; continue; }
-                if (line == "[pin]") { into = pin; flags = gather = false; continue; }
-                if (line == "[pinned]") { into = null; flags = true; gather = false; continue; }
-                if (line == "[gather]") { into = null; flags = false; gather = true; continue; }
+                if (line == "[plan]") { into = plan; flags = store = false; continue; }
+                if (line == "[pin]") { into = pin; flags = store = false; continue; }
+                if (line == "[pinned]") { into = null; flags = true; store = false; continue; }
+                if (line == "[chests]") { into = null; flags = false; store = snapshot = true; continue; }
+                if (line.StartsWith("[")) { into = null; flags = store = false; continue; }
                 if (flags) {
                     if (line == "plan") pinPlan = true;
                     else if (line == "gather") pinGather = true;
+                    else if (line == "recipes") recipes = true;
                     continue;
                 }
-                if (gather) {
+                if (store) {
                     var f = raw.Split('\t');
-                    int a, b = 0;
-                    if (f.Length < 2 || !int.TryParse(f[1], out a)) continue;
-                    if (f[0] == "sig") { targetsOf = a; continue; }
-                    if (f.Length > 2) int.TryParse(f[2], out b);
-                    if (a > 0) targets[f[0]] = new Pin.Target { Need = a, Bag = Mathf.Max(0, b) };
+                    if (f.Length < 2) continue;
+                    if (f[0] == "at") { long.TryParse(f[1], out at); continue; }
+                    if (f[0] == "pos") { TryVector(f[1], out where); continue; }
+                    int a;
+                    if (!int.TryParse(f[1], out a)) continue;
+                    if (f[0] == "boxes") boxes = a;
+                    else if (a > 0) chests[f[0]] = a;
                     continue;
                 }
                 var e = Parse(raw);
@@ -208,14 +226,31 @@ public static class PlanStore {
         Planner.Cart.Clear();
         Planner.Cart.AddRange(plan);
         if (pin.Count > 0) pinGather = true;
+        Pin.RawView = !recipes;
         Pin.Set(pinPlan, pinGather);
-        // Снимок из файла. Нет его (файл из старой версии): TargetsOf
-        // остаётся 0, и подсказка снимет недостачу сама, когда игрок появится.
-        Pin.Targets.Clear();
-        if (pinGather) foreach (var kv in targets) Pin.Targets[kv.Key] = kv.Value;
-        Pin.TargetsOf = pinGather ? targetsOf : 0;
+        // Снимок из файла. Нет его: подсказка просит обновить снимок, сама
+        // его не снимает, игрок может быть далеко от сундуков.
+        Pin.Chests.Clear();
+        if (pinGather && snapshot) foreach (var kv in chests) Pin.Chests[kv.Key] = kv.Value;
+        Pin.HasSnapshot = pinGather && snapshot;
+        Pin.Boxes = boxes;
+        Pin.At = at > 0 ? new DateTime(at) : DateTime.MinValue;
+        Pin.Where = where;
         ForgeplanPlugin.Log.LogInfo("план загружен: позиций " + plan.Count + ", закреплено: план "
-                                    + pinPlan + ", собрать " + pinGather + ": " + Path.GetFileName(_path));
+                                    + pinPlan + ", материалы " + pinGather + ": " + Path.GetFileName(_path));
+    }
+
+    static bool TryVector(string text, out Vector3 v) {
+        v = Vector3.zero;
+        var p = text.Split(',');
+        var inv = System.Globalization.CultureInfo.InvariantCulture;
+        var st = System.Globalization.NumberStyles.Float;
+        float x, y, z;
+        if (p.Length != 3 || !float.TryParse(p[0], st, inv, out x)
+            || !float.TryParse(p[1], st, inv, out y) || !float.TryParse(p[2], st, inv, out z))
+            return false;
+        v = new Vector3(x, y, z);
+        return true;
     }
 
     static Entry Parse(string line) {

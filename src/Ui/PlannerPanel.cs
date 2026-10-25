@@ -68,7 +68,9 @@ public class PlannerPanel {
     TextMeshProUGUI _found, _hint, _cartCount;
     RectTransform _catalog, _cart, _totals;
     Button _rawBtn, _directBtn, _coalBtn, _woodCoalBtn, _haveBtn;
-    Image _pinPlan, _pinGather, _refreshGather;
+    Image _pinPlan, _pinGather;
+    Button _snapshotBtn;
+    TextMeshProUGUI _snapshotLine;
 
     readonly List<CatalogRow> _catalogRows = new List<CatalogRow>();
     readonly List<CartRow> _cartRows = new List<CartRow>();
@@ -143,6 +145,8 @@ public class PlannerPanel {
         Progress.Refresh();
         bool first = _root == null;
         if (first) Build();
+        // Вид хранится в файле плана: перезашёл в игру, вид тот же.
+        _rawView = Pin.RawView;
         _root.SetActive(true);
         Search(force: true);
         _planDirty = true;
@@ -528,8 +532,16 @@ public class PlannerPanel {
         UiKit.Horizontal(totalsHead, 8);
         UiKit.Label(totalsHead, "totals-title", L.ToGather, 20, UiKit.Gold);
         _pinGather = PinToggle(totalsHead, () => { Pin.ToggleGather(); _planDirty = true; });
-        // Пересчитать закреплённую недостачу: нажимают дома, у сундуков.
-        _refreshGather = PinToggle(totalsHead, () => { Pin.Snapshot(); _planDirty = true; }, "refresh");
+        // Снимок хранилища: что лежит в сундуках рядом. Видна, пока материалы
+        // закреплены; золотом, когда снимка нет или он снят вдали от сундуков.
+        UiKit.Rect(totalsHead, "spacer").gameObject.AddComponent<LayoutElement>().flexibleWidth = 1;
+        _snapshotBtn = UiKit.Button(totalsHead, L.UpdateSnapshot, 230, 24, () => {
+            Pin.Snapshot(); _planDirty = true;
+        }, 14);
+
+        // Откуда числа сундуков: сколько их, когда и как далеко отсюда.
+        _snapshotLine = UiKit.Label(UiKit.Row(right, "snapshot", 18), "text", "", 13, UiKit.Dim);
+        UiKit.Stretch((RectTransform)_snapshotLine.transform);
 
         var totalsFrame = UiKit.Rect(right, "totals-frame");
         var tle = totalsFrame.gameObject.AddComponent<LayoutElement>();
@@ -774,11 +786,21 @@ public class PlannerPanel {
         bool pinned = Pin.Any && Planner.Cart.Count > 0;
         MarkPin(_pinPlan, Pin.Plan);
         MarkPin(_pinGather, Pin.Gather);
-        if (_refreshGather != null) {
-            if (_refreshGather.gameObject.activeSelf != Pin.Gather)
-                _refreshGather.gameObject.SetActive(Pin.Gather);
-            // Золотом, когда план правили после снимка: пора пересчитать.
-            _refreshGather.color = Pin.Stale ? UiKit.Gold : UiKit.Dim;
+        if (_snapshotBtn != null) {
+            if (_snapshotBtn.gameObject.activeSelf != Pin.Gather) _snapshotBtn.gameObject.SetActive(Pin.Gather);
+            Mark(_snapshotBtn, Pin.Stale || (Pin.HasSnapshot && Pin.Boxes == 0));
+        }
+        if (_snapshotLine != null) {
+            bool show = Pin.Gather;
+            if (_snapshotLine.transform.parent.gameObject.activeSelf != show)
+                _snapshotLine.transform.parent.gameObject.SetActive(show);
+            if (show) {
+                bool field = Pin.HasSnapshot && Pin.Boxes == 0;
+                _snapshotLine.color = field ? new Color(0.96f, 0.52f, 0.40f) : UiKit.Dim;
+                _snapshotLine.text = !Pin.HasSnapshot ? L.PinStale
+                    : field ? L.SnapshotEmpty(Pin.At, Pin.DistanceFromSnapshot())
+                    : L.SnapshotLine(Pin.Boxes, Pin.At, Pin.DistanceFromSnapshot());
+            }
         }
         // Закреплённый план и есть план: любая правка здесь меняет подсказку.
         Ui.PinHud.Invalidate();

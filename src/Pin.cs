@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using UnityEngine;
 
 namespace Forgeplan {
 
@@ -7,31 +8,39 @@ namespace Forgeplan {
 ///
 /// Закрепляется не копия, а сам план: подсказка на экране показывает ровно
 /// то, что сейчас в окне, и меняется вместе с ним. Две части закрепляются
-/// отдельно: «План» (что делаем) и «Нужно собрать» (из чего). Можно одну,
-/// можно обе.
+/// отдельно: «План» (что делаем) и «Материалы» (из чего). Можно одну, можно
+/// обе.
 ///
-/// «Нужно собрать» закрепляется снимком: сколько не хватает в момент
-/// закрепления, считая рюкзак и сундуки рядом. Дома всё лежит в сундуках, а
-/// в поле их нет, и живой счёт там снова требовал бы всё целиком. Поэтому
-/// недостача замораживается, а в поле считается только то, что добавилось в
-/// рюкзак с момента снимка. Вернулся домой, пересчитал (Snapshot).
+/// «Материалы» закрепляются вместе со снимком хранилища: что лежит в
+/// сундуках рядом в момент закрепления, все предметы, плюс когда и где снимок
+/// снят. Рюкзак считается живым. В поле сундуков нет, а снимок их помнит;
+/// подобрал, выронил, скрафтил: рюкзак показывает как есть. План можно
+/// править и в поле: в снимке всё содержимое сундуков, а не только то, что
+/// было в плане. Вернулся домой и разложил по сундукам: обновил снимок.
 ///
 /// Что закреплено, хранится в файле плана, см. PlanStore.
 /// </summary>
 public static class Pin {
     /// <summary>Закреплён список позиций плана.</summary>
     public static bool Plan;
-    /// <summary>Закреплено «Нужно собрать».</summary>
+    /// <summary>Закреплены «Материалы».</summary>
     public static bool Gather;
 
-    /// <summary>Считать ли до сырья. Зеркалит переключатель в окне.</summary>
+    /// <summary>Считать ли до сырья. Зеркалит переключатель в окне и
+    /// хранится в файле плана, чтобы после перезахода вид был тот же.</summary>
     public static bool RawView = true;
-    /// <summary>Снимок недостачи: сколько не хватало (Need) и сколько этого
-    /// было в рюкзаке в момент снимка (Bag).</summary>
-    public class Target { public int Need, Bag; }
-    public static readonly Dictionary<string, Target> Targets = new Dictionary<string, Target>();
-    /// <summary>По какому плану снят снимок, см. Signature.</summary>
-    public static int TargetsOf;
+
+    /* Снимок хранилища. */
+    /// <summary>Сколько каждого предмета лежало в сундуках рядом.</summary>
+    public static readonly Dictionary<string, int> Chests = new Dictionary<string, int>();
+    /// <summary>Сколько сундуков попало в счёт. Ноль: сняли вдали от сундуков.</summary>
+    public static int Boxes;
+    /// <summary>Когда снят, местное время.</summary>
+    public static System.DateTime At;
+    /// <summary>Где стоял игрок.</summary>
+    public static Vector3 Where;
+    /// <summary>Снимок есть.</summary>
+    public static bool HasSnapshot;
 
     /// <summary>Закреплённое поменялось: подсказке на экране пора пересобраться.</summary>
     public static System.Action Changed;
@@ -49,88 +58,82 @@ public static class Pin {
     public static void TogglePlan() { Plan = !Plan; Fire(); }
     public static void ToggleGather() {
         Gather = !Gather;
-        if (Gather) Take(); else Targets.Clear();
+        if (Gather) Take(); else Forget();
         Fire();
     }
 
-    /// <summary>Пересчитать недостачу: что нужно по плану минус рюкзак и
-    /// сундуки рядом. Кнопка обновления в окне.</summary>
+    /// <summary>Обновить снимок хранилища. Кнопка в окне и на панели.</summary>
     public static void Snapshot() { Take(); Fire(); }
 
+    static void Forget() {
+        Chests.Clear();
+        Boxes = 0;
+        HasSnapshot = false;
+    }
+
     static void Take() {
-        Targets.Clear();
-        var need = RawView ? Planner.Raw(Planner.Cart) : Planner.Direct(Planner.Cart);
-        var have = Stock.Count();
-        var bag = Stock.Count(false);
-        foreach (var kv in need) {
-            int got, inBag;
-            have.TryGetValue(kv.Key, out got);
-            bag.TryGetValue(kv.Key, out inBag);
-            int shortBy = kv.Value - got;
-            if (shortBy > 0) Targets[kv.Key] = new Target { Need = shortBy, Bag = inBag };
-        }
-        TargetsOf = Signature();
+        Chests.Clear();
+        int boxes;
+        foreach (var kv in Stock.ChestsOnly(out boxes)) Chests[kv.Key] = kv.Value;
+        Boxes = boxes;
+        At = System.DateTime.Now;
+        var me = Player.m_localPlayer;
+        Where = me != null ? me.transform.position : Vector3.zero;
+        HasSnapshot = true;
     }
 
-    /// <summary>
-    /// Отпечаток всего, от чего зависит недостача: позиции плана, вид и
-    /// уровни уже сделанного. Не совпал со снимком: план правили после него, и подсказка
-    /// просит пересчитать.
-    /// </summary>
-    public static int Signature() {
-        unchecked {
-            int h = RawView ? 17 : 31;
-            foreach (var e in Planner.Cart) {
-                h = h * 397 + (e.Id ?? "").GetStableHashCode();
-                h = h * 397 + e.Qty;
-                h = h * 397 + e.Quality;
-                foreach (var m in e.Made) h = h * 397 + m;
-            }
-            return h;
-        }
+    /// <summary>Сколько метров от места снимка до игрока. -1: игрока нет.</summary>
+    public static int DistanceFromSnapshot() {
+        var me = Player.m_localPlayer;
+        if (me == null) return -1;
+        return Mathf.RoundToInt(Vector3.Distance(me.transform.position, Where));
     }
 
-    /// <summary>План правили после снимка.</summary>
-    public static bool Stale { get { return Gather && TargetsOf != Signature(); } }
+    /// <summary>Материалы закреплены, а снимка нет (файл из старой версии).
+    /// Сам мод снимок не снимает: в поле это обнулило бы сундуки, поэтому
+    /// только просит.</summary>
+    public static bool Stale { get { return Gather && !HasSnapshot; } }
 
     public static void Set(bool plan, bool gather) {
         if (Plan == plan && Gather == gather) return;
         Plan = plan;
         Gather = gather;
-        if (!gather) Targets.Clear();
+        if (!gather) Forget();
         Fire();
     }
 
     public static void Clear() { Set(false, false); }
 
-    /// <summary>Строка «Нужно собрать»: собрано с момента снимка из того,
-    /// чего не хватало.</summary>
+    /// <summary>
+    /// Строка «Материалы»: сколько нужно всего, сколько из этого в сундуках
+    /// по снимку, сколько в рюкзаке сейчас и сколько ещё добыть. Части не
+    /// больше целого.
+    /// </summary>
     public struct MatRow {
         public string Id;
-        public int Have, Need;
-        public int Left { get { return Need - Have; } }
-        public bool Done { get { return Have >= Need; } }
+        public int Total, Chests, Bag;
+        public int Left { get { return Total - Chests - Bag; } }
+        public bool Done { get { return Left <= 0; } }
     }
 
     /// <summary>
-    /// Недостача из снимка и сколько из неё уже в рюкзаке: прибавка к тому,
-    /// что лежало там при снимке. Сундуки здесь не считаются: в поле их нет,
-    /// а дома для этого есть пересчёт. Собранное приходит с Have = Need, и
-    /// подсказка гасит такие строки, а не прячет их.
+    /// Что показывает панель: только то, за чем идти, то есть чего не
+    /// хватило в сундуках при снимке. Добытое гаснет, а не пропадает.
     /// </summary>
     public static List<MatRow> Rows() {
         var rows = new List<MatRow>();
-        if (!Gather || Targets.Count == 0) return rows;
-
+        if (!Gather || !HasSnapshot) return rows;
+        var need = RawView ? Planner.Raw(Planner.Cart) : Planner.Direct(Planner.Cart);
         var bag = Stock.Count(false);
-        foreach (var kv in Targets) {
-            int now;
-            bag.TryGetValue(kv.Key, out now);
-            rows.Add(new MatRow {
-                Id = kv.Key,
-                Need = kv.Value.Need,
-                Have = System.Math.Max(0, System.Math.Min(now - kv.Value.Bag, kv.Value.Need)),
-            });
+        foreach (var kv in need) {
+            if (kv.Value <= 0) continue;
+            int c, b;
+            Chests.TryGetValue(kv.Key, out c);
+            bag.TryGetValue(kv.Key, out b);
+            c = System.Math.Min(c, kv.Value);
+            if (kv.Value - c <= 0) continue;
+            b = System.Math.Min(b, kv.Value - c);
+            rows.Add(new MatRow { Id = kv.Key, Total = kv.Value, Chests = c, Bag = b });
         }
         return rows;
     }
