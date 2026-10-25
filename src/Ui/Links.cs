@@ -1,30 +1,18 @@
 namespace Forgeplan.Ui {
 
 /// <summary>
-/// Адреса, куда ведут кнопки в окне «Инфо». Единственное место, где они
-/// записаны.
-///
-/// Прибиты в код намеренно. Ссылку, которую можно подменить через конфиг или
-/// файл рядом, подменят: мод ставят распаковкой архива, и «перейти на сайт
-/// автора» легко превращается в «перейти куда-нибудь ещё». Здесь же её видно
-/// в исходниках и нельзя изменить, не пересобрав мод.
-///
-/// Пустая строка значит «адреса пока нет»: кнопка в окне гаснет и не нажимается.
+/// Адреса для окна «Инфо». Provisioner: форк, поэтому ссылки ведут на
+/// оригинал ForgePlanner и его сайт (автор Biozip) и на исходники форка.
 /// </summary>
 public static class Links {
+    /// <summary>ForgePlanner на Thunderstore: оригинал, от которого форк.</summary>
+    public const string Original = "https://thunderstore.io/c/valheim/p/Biozip/ForgePlanner/";
+
+    /// <summary>Сайт ForgePlanner с веб-версией планировщика (Biozip).</summary>
     public const string Site = "https://forgeplanner.pages.dev";
 
-    /// <summary>Профиль автора.</summary>
-    public const string Steam = "https://steamcommunity.com/id/Antizip/";
-
-    public const string Nexus = "https://www.nexusmods.com/profile/biozip";
-
-    /// <summary>Страницы самого мода, а не профиля: у Thunderstore и Hexium
-    /// профиль автора — это просто список модов, и полезнее сразу страница
-    /// ForgePlanner с описанием и версиями.</summary>
-    public const string Thunderstore = "https://thunderstore.io/c/valheim/p/Biozip/ForgePlanner/";
-
-    public const string Hexium = "https://valheim.hexium.gg/mods/Biozip/ForgePlanner";
+    /// <summary>Исходники Provisioner.</summary>
+    public const string Source = "https://github.com/JimmyMcAttaboy/Provisioner";
 }
 
 }

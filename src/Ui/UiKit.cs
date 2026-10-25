@@ -41,6 +41,119 @@ public static class UiKit {
     /// разрешениях и при смене размера интерфейса в настройках.</summary>
     public static Transform CanvasRoot;
 
+    /// <summary>Префаб подсказки игры: тот же, что у предметов в инвентаре.
+    /// null: не нашёлся, подсказок не будет, окно работает и так.</summary>
+    static GameObject _tipPrefab;
+
+    /// <summary>
+    /// Подсказка игры при наведении. Пояснения живут здесь, а не подписями
+    /// в окне: значок с подсказкой занимает место значка, а строка под ним
+    /// занимала полосу на всю ширину.
+    /// </summary>
+    public static void Tip(Component target, string topic, string text = "") {
+        if (target == null) return;
+        if (_tipPrefab == null) {
+            foreach (var t in Resources.FindObjectsOfTypeAll<UITooltip>())
+                if (t != null && t.m_tooltipPrefab != null) { _tipPrefab = t.m_tooltipPrefab; break; }
+            if (_tipPrefab == null) return;
+        }
+        var tip = target.GetComponent<UITooltip>();
+        if (tip == null) tip = target.gameObject.AddComponent<UITooltip>();
+        tip.m_tooltipPrefab = _tipPrefab;
+        tip.Set(topic, text, null, Vector2.zero);
+    }
+
+    /// <summary>Кнопка-значок: рамка кнопки игры и картинка поверх. Состояние
+    /// переключателя читается по подсветке рамки, см. MarkIcon.</summary>
+    public static Button IconBtn(Transform parent, Sprite icon, float size,
+                                 UnityAction onClick, float iconSize = 0f) {
+        var btn = Button(parent, "", size, size, onClick);
+        var rt = Rect((RectTransform)btn.transform, "icon");
+        rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f);
+        float s = iconSize > 0f ? iconSize : size - 10f;
+        rt.sizeDelta = new Vector2(s, s);
+        var img = rt.gameObject.AddComponent<Image>();
+        img.sprite = icon;
+        img.preserveAspect = true;
+        img.raycastTarget = false;
+        img.color = icon != null ? Color.white : Color.clear;
+        return btn;
+    }
+
+    /// <summary>Включённый значок: рамка золотая, картинка яркая. Выключенный:
+    /// рамка обычная, картинка приглушена.</summary>
+    /// <summary>
+    /// Переключатель вкл/выкл: дорожка и бегунок. У игры своего нет, а
+    /// кнопка с подписью во всю ширину читалась как заголовок, не как
+    /// выключатель.
+    /// </summary>
+    public class Switch {
+        public readonly Button Btn;
+        readonly Image _track, _knob;
+        readonly RectTransform _knobRt;
+
+        public Switch(Transform parent, UnityAction onClick) {
+            var rt = Rect(parent, "switch");
+            var le = rt.gameObject.AddComponent<LayoutElement>();
+            le.minWidth = le.preferredWidth = 40;
+            le.minHeight = le.preferredHeight = 20;
+            le.flexibleWidth = 0;
+            _track = rt.gameObject.AddComponent<Image>();
+            Btn = rt.gameObject.AddComponent<Button>();
+            Btn.targetGraphic = _track;
+            Btn.transition = Selectable.Transition.None;
+            if (onClick != null) Btn.onClick.AddListener(onClick);
+            _knobRt = Rect(rt, "knob");
+            _knobRt.anchorMin = _knobRt.anchorMax = new Vector2(0f, 0.5f);
+            _knobRt.pivot = new Vector2(0f, 0.5f);
+            _knobRt.sizeDelta = new Vector2(16f, 16f);
+            _knob = _knobRt.gameObject.AddComponent<Image>();
+            _knob.raycastTarget = false;
+            Set(false);
+        }
+
+        public void Set(bool on) {
+            _track.color = on ? Gold : new Color(0.33f, 0.30f, 0.26f);
+            _knob.color = on ? new Color(0.11f, 0.10f, 0.09f) : Dim;
+            _knobRt.anchorMin = _knobRt.anchorMax = new Vector2(on ? 1f : 0f, 0.5f);
+            _knobRt.pivot = new Vector2(on ? 1f : 0f, 0.5f);
+            _knobRt.anchoredPosition = new Vector2(on ? -2f : 2f, 0f);
+        }
+    }
+
+    /// <summary>
+    /// Прокрутка колесом: щелчок колеса двигает список на три строки, сколько
+    /// бы ни прислал ввод. Новый ввод Unity шлёт за щелчок то единицу, то долю
+    /// единицы, и множитель на величину давал то рывок, то ползание. Смотрим
+    /// только на направление.
+    /// </summary>
+    public class WheelStep : MonoBehaviour, UnityEngine.EventSystems.IScrollHandler {
+        public ScrollRect Scroll;
+        public const float Step = 96f;
+
+        public void OnScroll(UnityEngine.EventSystems.PointerEventData e) {
+            if (Scroll == null || Scroll.content == null || Scroll.viewport == null) return;
+            float d = e.scrollDelta.y;
+            if (Mathf.Approximately(d, 0f)) return;
+            var content = Scroll.content;
+            float max = Mathf.Max(0f, content.rect.height - Scroll.viewport.rect.height);
+            var p = content.anchoredPosition;
+            p.y = Mathf.Clamp(p.y - Mathf.Sign(d) * Step, 0f, max);
+            content.anchoredPosition = p;
+            Scroll.StopMovement();
+        }
+    }
+
+    public static void MarkIcon(Button b, bool on) {
+        if (b == null) return;
+        if (b.image != null) b.image.color = on ? new Color(1f, 0.82f, 0.42f) : Color.white;
+        var icon = b.transform.Find("icon");
+        if (icon == null) return;
+        var img = icon.GetComponent<Image>();
+        if (img != null && img.sprite != null)
+            img.color = on ? Color.white : new Color(1f, 1f, 1f, 0.75f);
+    }
+
     public static readonly Color Ink = new Color(0.90f, 0.86f, 0.76f);
     public static readonly Color Dim = new Color(0.60f, 0.57f, 0.51f);
     public static readonly Color Gold = new Color(0.93f, 0.77f, 0.38f);
@@ -478,9 +591,10 @@ public static class UiKit {
         var scroll = view.gameObject.AddComponent<ScrollRect>();
         scroll.horizontal = false;
         scroll.movementType = ScrollRect.MovementType.Clamped;
-        // Три строки за щелчок колеса. Одна — ровно столько ставит Unity по
-        // умолчанию — при списке в тысячу позиций превращает прокрутку в пытку.
-        scroll.scrollSensitivity = 102f;
+        // Колесо считаем сами, см. WheelStep: величина прокрутки у Unity 6 в
+        // игре не та, что в редакторе, и множитель 102 на деле полз еле-еле.
+        scroll.scrollSensitivity = 0f;
+        view.gameObject.AddComponent<WheelStep>().Scroll = scroll;
 
         var content = Rect(view, "content");
         content.anchorMin = new Vector2(0, 1);

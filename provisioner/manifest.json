@@ -1,0 +1,9 @@
+{
+    "name": "Provisioner",
+    "version_number": "1.0.2",
+    "website_url": "https://github.com/JimmyMcAttaboy/Provisioner",
+    "description": "My version of Biozip's ForgePlanner for my friends: storage snapshot, material bars, auto snapshot at home, owned gear. Everyone else: use the original ForgePlanner. Don't install both.",
+    "dependencies": [
+        "denikson-BepInExPack_Valheim-5.4.2350"
+    ]
+}

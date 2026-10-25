@@ -17,10 +17,14 @@ namespace Forgeplan {
 /// запустится. Поэтому наследуемся от BaseUnityPlugin (BepInEx 5), а не от
 /// шестёрки — у той другой API и другой загрузчик.
 /// </summary>
-[BepInPlugin(Guid, "Forgeplan", Version)]
+[BepInPlugin(Guid, "Provisioner", Version)]
 [BepInProcess("valheim.exe")]
 public class ForgeplanPlugin : BaseUnityPlugin {
-    public const string Guid = "dev.forgeplanner.forgeplan";
+    /// <summary>Свой идентификатор, не ForgePlanner: Provisioner его форк, и
+    /// BepInEx должен видеть их как два разных мода.</summary>
+    public const string Guid = "jimmymcattaboy.provisioner";
+    /// <summary>Оригинал. Стоят оба: работает он, этот молчит.</summary>
+    const string OriginalGuid = "dev.forgeplanner.forgeplan";
     /// <summary>Из файла VERSION: сборка кладёт его в Version.g.cs и сверяет
     /// с верхней записью Versions.md. Руками здесь ничего не правят.</summary>
     public const string Version = Build.Version;
@@ -31,6 +35,7 @@ public class ForgeplanPlugin : BaseUnityPlugin {
     ConfigEntry<KeyboardShortcut> _hotkey;
     ConfigEntry<float> _chestRadius;
     ConfigEntry<bool> _includeChests;
+    ConfigEntry<bool> _useOwned;
     ConfigEntry<bool> _selfTest;
     ConfigEntry<bool> _russian;
     ConfigEntry<Progress.Mode> _spoilers;
@@ -42,6 +47,10 @@ public class ForgeplanPlugin : BaseUnityPlugin {
     ConfigEntry<float> _pinX, _pinY, _pinInterval;
     ConfigEntry<int> _pinRows;
     ConfigEntry<bool> _pinHideDone;
+    ConfigEntry<bool> _pinBars;
+    ConfigEntry<float> _snapshotRadius;
+    ConfigEntry<bool> _autoSnapshot;
+    ConfigEntry<float> _autoMinutes;
     ConfigEntry<float> _pinScale;
     ConfigEntry<bool> _cardEnabled, _cardCompare;
     ConfigEntry<KeyCode> _cardDetails;
@@ -65,6 +74,10 @@ public class ForgeplanPlugin : BaseUnityPlugin {
             "Count nearby chests, not just your backpack.");
         _chestRadius = Config.Bind("Stock", "Radius", 20f,
             "How far a chest counts as yours, in metres.");
+        _useOwned = Config.Bind("Stock", "UpgradeOwned", false,
+            "Take the level of already-made gear from your backpack and nearby chests "
+            + "instead of marking it by hand. Also toggled by the Owned button.");
+        Planner.UseOwned = _useOwned.Value;
         // Английский по умолчанию: площадки с модами международные. Названия
         // предметов сюда не относятся — они приходят из Localization игры и
         // следуют её языку, подменять их мод не может и не должен.
@@ -118,6 +131,15 @@ public class ForgeplanPlugin : BaseUnityPlugin {
         _pinScale = Config.Bind("Pin", "Scale", 1f,
             "Size of the pinned panel, 0.6 to 2.5. The - and + buttons on the panel, "
             + "shown while the Esc menu is open, write this.");
+        _pinBars = Config.Bind("Pin", "Bars", false,
+            "Show pinned materials as bars (chests, backpack, still to get) instead of numbers. Also in Settings.");
+        _snapshotRadius = Config.Bind("Stock", "SnapshotRadius", 50f,
+            "How far the storage snapshot looks for chests, in metres (20 to 150). Also in Settings.");
+        _autoSnapshot = Config.Bind("Stock", "AutoSnapshot", false,
+            "Update the storage snapshot by itself when you arrive home (on foot or by portal) "
+            + "and every few minutes while there. Home is set in Settings, or your bed. Also in Settings.");
+        _autoMinutes = Config.Bind("Stock", "AutoSnapshotMinutes", 2f,
+            "How often the automatic storage snapshot updates while you are home, in minutes.");
         _pinHideDone = Config.Bind("Pin", "HideGathered", false,
             "Hide materials you already carry enough of, instead of moving them to the bottom");
         _pinRows = Config.Bind("Pin", "MaxRows", 8,
@@ -136,6 +158,10 @@ public class ForgeplanPlugin : BaseUnityPlugin {
         Ui.PinHud.Interval = _pinInterval.Value;
         Ui.PinHud.MaxRows = _pinRows.Value;
         Ui.PinHud.HideDone = _pinHideDone.Value;
+        Ui.PinHud.Bars = _pinBars.Value;
+        Stock.SnapshotRadius = _snapshotRadius.Value;
+        AutoSnapshot.Enabled = _autoSnapshot.Value;
+        AutoSnapshot.Minutes = _autoMinutes.Value;
         Ui.PinHud.Scale = Mathf.Clamp(_pinScale.Value, Ui.PinHud.MinScale, Ui.PinHud.MaxScale);
         Ui.PinHud.OnScaled = v => { _pinScale.Value = v; };
         Pin.Changed = Ui.PinHud.Invalidate;
@@ -173,6 +199,10 @@ public class ForgeplanPlugin : BaseUnityPlugin {
         Panel.OnLanguageChanged = ru => { _russian.Value = ru; };
         Panel.OnSpoilersChanged = mode => { _spoilers.Value = mode; };
         Panel.OnChestsChanged = on => { _includeChests.Value = on; };
+        Panel.OnOwnedChanged = on => { _useOwned.Value = on; };
+        Panel.OnPinBarsChanged = on => { _pinBars.Value = on; };
+        Panel.OnSnapshotRadiusChanged = r => { _snapshotRadius.Value = r; };
+        Panel.OnAutoSnapshotChanged = on => { _autoSnapshot.Value = on; };
         Panel.OnCardChanged = (on, compare) => {
             _cardEnabled.Value = on;
             _cardCompare.Value = compare;
@@ -181,7 +211,20 @@ public class ForgeplanPlugin : BaseUnityPlugin {
 
         _harmony = new Harmony(Guid);
         _harmony.PatchAll();
-        Log.LogInfo("Форджплан " + Version + " загружен");
+        Log.LogInfo("Provisioner " + Version + " загружен");
+    }
+
+    /// <summary>
+    /// Оригинальный ForgePlanner тоже установлен: оба повесились бы на F7 и
+    /// рисовали бы два окна. Уступаем оригиналу и пишем об этом в лог.
+    /// В Start, а не в Awake: к этому моменту загружены все плагины.
+    /// </summary>
+    void Start() {
+        if (!BepInEx.Bootstrap.Chainloader.PluginInfos.ContainsKey(OriginalGuid)) return;
+        Log.LogWarning("ForgePlanner (оригинал) тоже установлен. Provisioner его форк: "
+                       + "оставьте один из двух. Provisioner отключается.");
+        if (_harmony != null) _harmony.UnpatchSelf();
+        enabled = false;
     }
 
     void OnDestroy() {
@@ -242,6 +285,7 @@ public class ForgeplanPlugin : BaseUnityPlugin {
 
         // План этого мира: прочесть при входе, дописывать при изменениях.
         PlanStore.Tick();
+        AutoSnapshot.Tick();
 
         // Переключатель в окне настроек меняет Panel.Chests; запас читается
         // отсюда, поэтому значение переносится каждый кадр, а не при открытии.
@@ -255,7 +299,7 @@ public class ForgeplanPlugin : BaseUnityPlugin {
             // Меню Esc и инвентарь главнее: два окна, дерущихся за курсор, —
             // худшее из возможных поведений.
             if (GameGuiReallyOpen()) Panel.Hide();
-            else if (Input.GetKeyDown(KeyCode.Escape)) Panel.Hide();
+            else if (Input.GetKeyDown(KeyCode.Escape)) { if (!Panel.Escape()) Panel.Hide(); }
             else Panel.Tick();
         }
 

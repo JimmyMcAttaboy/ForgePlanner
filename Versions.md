@@ -11,31 +11,24 @@
 `[BepInPlugin]` и в `manifest.json` для Thunderstore — руками его нигде не
 дублируют.
 
-## Как нумеруем
+## 1.0.2
 
-| Разряд | Когда растёт | Пример |
-| --- | --- | --- |
-| **MAJOR** | ломается совместимость: другой GUID плагина, несовместимый формат конфига, требование другой версии BepInEx | переезд на BepInEx 6 |
-| **MINOR** | новое или заметно изменившееся поведение | окно на uGUI, учёт сундуков |
-| **PATCH** | починка без нового поведения | не то название станка в блоке переработки |
+New plugin id (jimmymcattaboy.provisioner): settings start from defaults once.
+No change to how the planner works.
 
-Расхождение расчёта с игрой — это **MINOR**, а не PATCH: меняется результат,
-ради которого мод и ставят.
+## 1.0.1
 
-## Связь с сайтом
+The About window links to the original ForgePlanner, its website and
+Provisioner's source in plain text. ForgePlanner's screenshots, store pages,
+package icon and other sites' link icons are not part of this version.
 
-Мод и сайт считают по одному и тому же ядру, но данные берут из разных мест,
-и разойтись могут молча. Поэтому расхождения ловятся не на глаз:
+## 1.0.0
 
-* `[Debug] SelfTest = true` в конфиге — мод при входе в мир выкладывает в лог
-  каталог, таблицу превращений и посчитанные заказы;
-* `tools/parity.js` в корне проекта прогоняет те же заказы по `data.js` сайта
-  и сверяет числа.
-
-Сегодняшние выпуски 1.6.0 и 1.7.0 сайта родились именно так: ошибки нашлись
-в моде, а оказались общими.
-
----
+Provisioner: my version of ForgePlanner 1.6.0 by Biozip for my friends on my
+server. Plan files live in BepInEx/config/provisioner (copied once from
+forgeplanner). Adds pinned materials with a storage snapshot, Materials bars,
+auto snapshot at home, the Owned toggle, a plan-first window with search over
+the plan, and reorganised Settings.
 
 ## 1.6.0 — 2026-10-08
 

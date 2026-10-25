@@ -20,11 +20,93 @@ public static class L {
 
     static string T(string en, string ru) { return Ru ? ru : en; }
 
-    public static string Title { get { return "ForgePlanner"; } }
+    public static string Title { get { return "Provisioner"; } }
+    public static string ForkOf { get { return T("Fork of ForgePlanner by Biozip", "Форк ForgePlanner от Biozip"); } }
+    public static string LinkOriginal { get { return T("ForgePlanner (original)", "ForgePlanner (оригинал)"); } }
+    public static string SiteOriginal { get { return T("ForgePlanner website", "Сайт ForgePlanner"); } }
+    public static string LinkSource { get { return T("Provisioner source", "Исходники Provisioner"); } }
     /// <summary>Подпись кнопки — язык, на который переключит, а не текущий.</summary>
     public static string OtherLang { get { return Ru ? "EN" : "RU"; } }
 
     public static string Clear { get { return T("Clear", "Очистить"); } }
+
+    /* Подсказки при наведении. Заголовок: что это; текст: что будет. */
+    public static string TipClear { get { return T("Clear the plan", "Очистить план"); } }
+    public static string TipPinPlan { get { return T("Pin the plan", "Закрепить план"); } }
+    public static string TipPinPlanText {
+        get { return T("Stays on screen after you close the window and follows the plan.",
+                       "Остаётся на экране после закрытия окна и меняется вместе с планом."); }
+    }
+    public static string TipPinGather { get { return T("Pin materials", "Закрепить материалы"); } }
+    public static string TipPinGatherText {
+        get { return T("Takes a storage snapshot of your nearby chests. Your backpack counts live against the rest.",
+                       "Делает снимок хранилища: сундуки рядом. Остальное считается по рюкзаку."); }
+    }
+
+    /* Снимок хранилища: что лежит в сундуках рядом, когда и где снят. */
+    public static string UpdateSnapshot { get { return T("Update storage snapshot", "Обновить снимок хранилища"); } }
+    public static string UpdateSnapshotText {
+        get { return T("Count every item in the chests around you. Do it at your base.",
+                       "Посчитать все предметы в сундуках вокруг. Делайте это дома."); }
+    }
+    public static string Chests { get { return T("Chests", "Сундуки"); } }
+    public static string Backpack { get { return T("Backpack", "Рюкзак"); } }
+    public static string StillToGet { get { return T("Still to get", "Ещё добыть"); } }
+    static string Ago(System.DateTime at) { return at.ToString("HH:mm"); }
+    /// <summary>«Storage snapshot: 14 chests · 14:05 · 3 m from here».</summary>
+    public static string SnapshotLine(int boxes, System.DateTime at, int metres, bool auto) {
+        return T("Storage snapshot" + (auto ? " (auto)" : "") + ": " + boxes + (boxes == 1 ? " chest" : " chests") + " · " + Ago(at)
+                     + (metres >= 0 ? " · " + metres + " m from here" : ""),
+                 "Снимок хранилища" + (auto ? " (авто)" : "") + ": сундуков " + boxes + " · " + Ago(at)
+                     + (metres >= 0 ? " · " + metres + " м отсюда" : ""));
+    }
+    public static string SnapshotEmpty(System.DateTime at, int metres) {
+        return T("Storage snapshot taken away from storage: 0 chests · " + Ago(at)
+                     + (metres >= 0 ? " · " + metres + " m from here" : ""),
+                 "Снимок хранилища снят вдали от сундуков: 0 сундуков · " + Ago(at)
+                     + (metres >= 0 ? " · " + metres + " м отсюда" : ""));
+    }
+    public static string ChestsNearby(int boxes) {
+        return T("Nearby storage: " + boxes + (boxes == 1 ? " chest" : " chests"),
+                 "Хранилище рядом: сундуков " + boxes);
+    }
+    public static string PinnedStyle { get { return T("Pinned materials", "Закреплённые материалы"); } }
+    public static string AutoSnapshot { get { return T("Auto storage snapshot at home", "Автоснимок хранилища дома"); } }
+    public static string AutoSnapshotText {
+        get { return T("When you arrive home on foot or by portal, when you close a chest at home, and every few minutes while you are there.",
+                       "Когда вы приходите домой пешком или через портал, когда закрываете сундук дома, и каждые несколько минут, пока вы там."); }
+    }
+    public static string SetHome { get { return T("Set home storage here", "Хранилище здесь"); } }
+    public static string SetHomeText {
+        get { return T("Home is where the auto snapshot runs. Not set: your bed.",
+                       "Дом: место, где снимается автоснимок. Не задан: кровать."); }
+    }
+    public static string HomeSet { get { return T("Home: set", "Дом: задан"); } }
+    public static string HomeBed { get { return T("Home: your bed", "Дом: кровать"); } }
+    public static string HomeNone { get { return T("No home or bed yet", "Нет ни дома, ни кровати"); } }
+    public static string SnapshotRange { get { return T("Storage snapshot range", "Радиус снимка хранилища"); } }
+    public static string StyleNumbers { get { return T("Numbers", "Числа"); } }
+    public static string StyleBars { get { return T("Bars", "Полосы"); } }
+    public static string TipCoalText {
+        get { return T("Add the coal smelting needs.", "Добавить уголь, который уйдёт на плавку."); }
+    }
+    public static string TipFirewoodText {
+        get { return T("Count coal as the wood burned for it.", "Считать уголь как дрова для угольной печи."); }
+    }
+    public static string TipInventoryText {
+        get { return T("Subtract what is in your backpack and nearby chests.",
+                       "Вычесть то, что есть в рюкзаке и сундуках рядом."); }
+    }
+    public static string TipOwnedText {
+        get { return T("Take the level of gear you already have from your backpack and nearby chests.",
+                       "Брать уровень уже сделанного снаряжения из рюкзака и сундуков рядом."); }
+    }
+    public static string TipLevel(int q) { return T("Level " + q, "Уровень " + q); }
+    public static string Language { get { return T("Language", "Язык"); } }
+    public static string SectionCatalogue { get { return T("Catalogue", "Каталог"); } }
+    public static string SectionStorage { get { return T("Storage", "Хранилище"); } }
+    public static string SectionPinned { get { return T("Pinned panel", "Закреплённая панель"); } }
+    public static string SectionGeneral { get { return T("General", "Общее"); } }
 
     /* Закреплённый список. «Pinned» и «Закреплено» — заголовок панели на
      * экране; остальное живёт на кнопках в окне. */
@@ -38,6 +120,10 @@ public static class L {
     public static string UnitHas(int level) {
         return T("have it at level " + level, "есть, ур. " + level);
     }
+    /// <summary>Переключатель «Своё»: уровни сделанного берутся из рюкзака и
+    /// сундуков рядом.</summary>
+    public static string Owned { get { return T("Owned", "Своё"); } }
+    public static string UnitFound { get { return T("(found nearby)", "(найден рядом)"); } }
 
     /* Тотемы PlanBuild. */
     public static string AddTotem { get { return T("+ Totem", "+ Тотем"); } }
@@ -59,6 +145,12 @@ public static class L {
         get { return T("too far, last seen numbers", "далеко, числа последнего осмотра"); }
     }
     public static string Unpin { get { return T("Unpin", "Открепить"); } }
+    public static string PinStale { get { return T("no storage snapshot", "нет снимка хранилища"); } }
+    /// <summary>Строка плана на закреплённой панели: «×2  ур. 4». Без уровня,
+    /// если у вещи его нет (quality = 0).</summary>
+    public static string PinPlanRow(int qty, int quality) {
+        return "×" + qty + (quality > 0 ? "  " + LevelShort + quality : "");
+    }
     public static string PinDone {
         get { return T("Everything gathered.", "Всё собрано."); }
     }
@@ -69,12 +161,14 @@ public static class L {
     }
     public static string HintPinned {
         get {
-            return T("Pinned materials stay on screen after the window closes "
-                     + "and count what is in your backpack, chests aside. Open "
-                     + "the Esc menu to drag the panel somewhere else.",
-                     "Закреплённое остаётся на экране после закрытия окна и "
-                     + "считает то, что в рюкзаке, — сундуки не в счёт. Чтобы "
-                     + "перетащить панель, откройте меню Esc.");
+            return T("Pinned parts stay on screen after the window closes. "
+                     + "To gather keeps what you were short when you pinned it "
+                     + "and counts what you pick up. Refresh it at your base "
+                     + "to recount your chests. Open the Esc menu to drag the panel.",
+                     "Закреплённое остаётся на экране после закрытия окна. "
+                     + "«Нужно собрать» запоминает, чего не хватало при закреплении, "
+                     + "и считает, что вы подобрали. Обновите его дома, чтобы "
+                     + "пересчитать сундуки. Перетащить панель можно в меню Esc.");
         }
     }
     /* Карточка предмета при наведении. Названия характеристик свои, а не из
@@ -279,7 +373,7 @@ public static class L {
     public static string ColLevel { get { return T("Item level", "Уровень предмета"); } }
     public static string ColQty { get { return T("Quantity", "Количество"); } }
     public static string TotalItems { get { return T("Items total: ", "Всего предметов: "); } }
-    public static string ToGather { get { return T("To gather", "Нужно собрать"); } }
+    public static string ToGather { get { return T("Materials", "Материалы"); } }
     public static string Processing { get { return T("Processing", "Переработка"); } }
     public static string StationsNeeded { get { return T("Stations", "Станки"); } }
     public static string Metres { get { return T(" m", " м"); } }

@@ -65,9 +65,16 @@ public class PlannerPanel {
     GameObject _root;
     RectTransform _window;
     TMP_InputField _search;
-    TextMeshProUGUI _found, _hint, _cartCount;
     RectTransform _catalog, _cart, _totals;
-    Button _rawBtn, _directBtn, _coalBtn, _woodCoalBtn, _haveBtn, _pinBtn;
+    Button _viewBtn, _snapshotBtn, _coalBtn, _woodCoalBtn;
+    TextMeshProUGUI _snapshotLine, _snapshotWarn;
+    GameObject _snapshotWarnRow;
+    readonly List<MaterialRow> _materialRows = new List<MaterialRow>();
+    Image _planEdge, _gatherEdge;
+    RectTransform _strip;
+    GameObject _catalogPop, _catalogCatcher;
+    readonly List<StationCard> _cards = new List<StationCard>();
+    Image _pinPlan, _pinGather;
 
     readonly List<CatalogRow> _catalogRows = new List<CatalogRow>();
     readonly List<CartRow> _cartRows = new List<CartRow>();
@@ -87,7 +94,15 @@ public class PlannerPanel {
 
     GameObject _settings;          // оверлей настроек; null — ещё не собран
     GameObject _about;             // оверлей «Инфо»
-    Button _chestBtn, _cardBtn, _compareBtn;
+    Button _numbersBtn, _barsBtn, _langEn, _langRu;
+    UiKit.Switch _chestSw, _cardSw, _compareSw, _autoSw;
+    /// <summary>Сменили вид закреплённых материалов: сохранить в конфиг.</summary>
+    public System.Action<bool> OnPinBarsChanged;
+    /// <summary>Сменили радиус снимка хранилища: сохранить в конфиг.</summary>
+    public System.Action<float> OnSnapshotRadiusChanged;
+    TextMeshProUGUI _radiusValue, _homeLine;
+    /// <summary>Включили или выключили автоснимок: сохранить в конфиг.</summary>
+    public System.Action<bool> OnAutoSnapshotChanged;
     /// <summary>Кнопки режима каталога — по одной на Progress.Mode, в том же
     /// порядке.</summary>
     readonly List<Button> _modeBtns = new List<Button>();
@@ -104,11 +119,15 @@ public class PlannerPanel {
     public System.Action<bool> OnChestsChanged;
     /// <summary>Считать ли сундуки. Живёт в конфиге, сюда кладёт плагин.</summary>
     public bool Chests = true;
+    /// <summary>Переключили «Своё»: сохранить в конфиг.</summary>
+    public System.Action<bool> OnOwnedChanged;
+    /// <summary>Язык переключили: плагину нужно сохранить это в конфиг.</summary>
+    public System.Action<bool> OnLanguageChanged;
+    Button _ownedBtn;
 
     List<ItemDef> _matches = new List<ItemDef>();
     string _queryShown;
     bool _rawView = true;
-    bool _countHave;
     bool _planDirty = true;
     /// <summary>Когда окно в последний раз перечитывало тотемы PlanBuild.</summary>
     float _totemsAt;
@@ -142,6 +161,8 @@ public class PlannerPanel {
         Progress.Refresh();
         bool first = _root == null;
         if (first) Build();
+        // Вид хранится в файле плана: перезашёл в игру, вид тот же.
+        _rawView = Pin.RawView;
         _root.SetActive(true);
         Search(force: true);
         _planDirty = true;
@@ -152,6 +173,7 @@ public class PlannerPanel {
     }
 
     public void Hide() {
+        CloseCatalog();
         _card.Hide();
         if (_root != null) _root.SetActive(false);
     }
@@ -195,7 +217,9 @@ public class PlannerPanel {
         _about = null;
         _ask = null;
         _askWhere = null;
-        _chestBtn = _cardBtn = _compareBtn = null;
+        _numbersBtn = _barsBtn = _langEn = _langRu = null;
+        _chestSw = _cardSw = _compareSw = _autoSw = null;
+        _radiusValue = _homeLine = null;
         _modeBtns.Clear();
         _modeHint = null;
         _openLine = null;
@@ -206,7 +230,12 @@ public class PlannerPanel {
         _root = null;
         _catalogRows.Clear();
         _cartRows.Clear();
+        _cards.Clear();
+        _catalogPop = _catalogCatcher = null;
+        _pieceRows.Clear();
+        _unitRows.Clear();
         _pairs.Clear();
+        _materialRows.Clear();
         _notes.Clear();
         _matches.Clear();
         _tabs.Clear();
@@ -253,22 +282,19 @@ public class PlannerPanel {
         UiKit.Box(_window, "veil", null, Veil);
 
         var col = _window.gameObject.AddComponent<VerticalLayoutGroup>();
-        col.padding = new RectOffset(16, 16, 12, 14);
-        col.spacing = 10;
+        col.padding = new RectOffset(16, 16, 12, 16);
+        col.spacing = 12;
         col.childForceExpandHeight = false;
         col.childForceExpandWidth = true;
         col.childControlHeight = true;
         col.childControlWidth = true;
 
+        // Окно отдано плану: поиск, план, что собрать. Каталог не стоит
+        // колонкой, а выпадает поверх плана, пока ищут.
         BuildHeader();
-        BuildBiomes();
-        BuildBody();
-
-        var foot = UiKit.Row(_window, "foot", 30);
-        UiKit.Horizontal(foot, 10);
-        UiKit.Button(foot, L.Info, 96, 28, ShowAbout, 15);
-        _hint = UiKit.Label(foot, "hint", "", 14, UiKit.Dim);
-        _hint.gameObject.AddComponent<LayoutElement>().flexibleWidth = 1;
+        BuildPlanSection();
+        BuildGatherSection();
+        BuildCatalog();
     }
 
     /// <summary>Окно во весь экран не нужно, но и жёсткий размер не годится:
@@ -281,110 +307,354 @@ public class PlannerPanel {
         return new Vector2(w, h);
     }
 
+    /// <summary>Нижний край полосы поиска от верха окна: под ним выпадает
+    /// каталог.</summary>
+    const float HeaderBottom = 12f + 40f + 4f;
+
+    /// <summary>
+    /// Одна полоса: название, поиск, настройки и закрыть. Язык и «Инфо» ушли
+    /// в настройки, а название встало в ряд с поиском и полосы не забирает.
+    /// </summary>
     void BuildHeader() {
         var bar = UiKit.Row(_window, "header", 40);
-        UiKit.Horizontal(bar, 10);
+        UiKit.Horizontal(bar, 8);
 
-        // Тащим окно за заголовок. Прозрачная картинка нужна, чтобы полоса
+        // Тащим окно за полосу. Прозрачная картинка нужна, чтобы полоса
         // ловила курсор: без raycastTarget тянуть будет не за что.
         var grip = bar.gameObject.AddComponent<Image>();
         grip.color = new Color(0, 0, 0, 0);
         grip.raycastTarget = true;
         bar.gameObject.AddComponent<DragMove>().Target = _window;
 
-        // Заголовок стоит вне разметки и растянут на всю полосу: иначе он
-        // центрируется по остатку строки, а остаток зависит от ширины кнопок —
-        // и на разных языках название уезжает то влево, то вправо.
-        var title = UiKit.Label(bar, "title", L.Title, 26, UiKit.Gold,
-                                TextAlignmentOptions.Center);
-        title.gameObject.AddComponent<LayoutElement>().ignoreLayout = true;
-        var trt = (RectTransform)title.transform;
-        UiKit.Stretch(trt);
-        trt.offsetMin = new Vector2(10f, 0f);
-        trt.offsetMax = new Vector2(-10f, 0f);
-        title.raycastTarget = false;   // тащить окно за заголовок всё ещё можно
+        var title = UiKit.Label(bar, "title", L.Title, 24, UiKit.Gold);
+        title.raycastTarget = false;   // тащить окно за название тоже можно
 
-        // Пустое место слева: кнопки должны остаться справа, а заголовок их
-        // больше не отталкивает — он в разметке не участвует.
-        UiKit.Rect(bar, "spacer").gameObject
-             .AddComponent<LayoutElement>().flexibleWidth = 1;
+        // Поле и крестик: один ряд с общей обводкой, крестик читается как
+        // часть поля, а не как ещё одна кнопка.
+        var searchRow = UiKit.Rect(bar, "search-row");
+        var sle = searchRow.gameObject.AddComponent<LayoutElement>();
+        sle.flexibleWidth = 1;
+        sle.minHeight = sle.preferredHeight = 38;
+        UiKit.Horizontal(searchRow, 0, 1, 4);
+        UiKit.Frame(searchRow, new Color(0.93f, 0.77f, 0.38f, 0.32f), 1f);
 
-        // Подпись — язык, на который переключит, а не текущий: так видно, что
-        // кнопка сделает, и не надо гадать, где ты сейчас.
-        UiKit.FlagButton(bar, L.Ru, L.OtherLang, 84, 32, () => {
-            L.Ru = !L.Ru;
-            if (OnLanguageChanged != null) OnLanguageChanged(L.Ru);
-            Rebuild();
+        _search = UiKit.Input(searchRow, L.SearchHint, 36);
+        _search.gameObject.GetComponent<LayoutElement>().flexibleWidth = 1;
+        _search.onSelect.AddListener(_ => OpenCatalog());
+        _search.onValueChanged.AddListener(_ => OpenCatalog());
+        UiKit.Button(searchRow, "×", 32, 28, () => {
+            _search.text = "";
+            CloseCatalog();
         });
-        UiKit.Button(bar, L.Settings, 128, 32, ShowSettings);
-        UiKit.Button(bar, L.Close, 110, 32, Hide);
+
+        var gear = UiKit.IconBtn(bar, Art.Get("gear"), 38, ShowSettings, 24);
+        UiKit.Tip(gear, L.Settings);
+        var close = UiKit.Button(bar, "×", 38, 38, Hide, 22);
+        UiKit.Tip(close, L.Close);
     }
 
-    /// <summary>Язык переключили — плагину нужно сохранить это в конфиг.</summary>
-    public System.Action<bool> OnLanguageChanged;
-
-    /// <summary>
-    /// Полоса биомов. Десять кнопок в два ряда: одним рядом они не помещаются
-    /// ни на одном языке, а убрать их в колонку каталога нельзя — фильтр общий
-    /// и относится к разделам тоже.
-    ///
-    /// Кружок цвета — символом в самой подписи, разметкой TMP. Спрайта под это
-    /// заводить незачем, а цвета те же, что на сайте: они приезжают вместе с
-    /// таблицей биомов в Tiers.g.cs.
-    /// </summary>
-    void BuildBiomes() {
-        var block = UiKit.Rect(_window, "biomes");
-        var ble = block.gameObject.AddComponent<LayoutElement>();
-        ble.minHeight = ble.preferredHeight = 84;
-        ble.flexibleHeight = 0;
-        var h = UiKit.Horizontal(block, 10);
-        h.childAlignment = TextAnchor.UpperLeft;
-
-        var caption = UiKit.Label(block, "caption", L.Biome, 14, UiKit.Dim,
-                                  TextAlignmentOptions.TopRight);
-        var cle = caption.gameObject.AddComponent<LayoutElement>();
-        cle.minWidth = cle.preferredWidth = 74;
-        cle.minHeight = cle.preferredHeight = 32;
-
-        var stack = UiKit.Rect(block, "stack");
-        stack.gameObject.AddComponent<LayoutElement>().flexibleWidth = 1;
-        var col = stack.gameObject.AddComponent<VerticalLayoutGroup>();
+    /// <summary>Часть окна: золотая черта сверху (горит, пока часть
+    /// закреплена), заголовок и содержимое.</summary>
+    static RectTransform Section(Transform parent, string name, float flex, out Image edge) {
+        var sec = UiKit.Rect(parent, name);
+        var le = sec.gameObject.AddComponent<LayoutElement>();
+        le.flexibleHeight = flex;
+        le.minHeight = 150;
+        var col = sec.gameObject.AddComponent<VerticalLayoutGroup>();
         col.spacing = 6;
         col.childForceExpandHeight = false;
-        col.childForceExpandWidth = false;
+        col.childForceExpandWidth = true;
         col.childControlHeight = true;
         col.childControlWidth = true;
-        col.childAlignment = TextAnchor.UpperLeft;
+        edge = UiKit.Row(sec, "edge", 2).gameObject.AddComponent<Image>();
+        edge.color = Color.clear;
+        edge.raycastTarget = false;
+        return sec;
+    }
 
-        var row1 = UiKit.Row(stack, "row1", 36);
-        UiKit.Horizontal(row1, 6);
-        var row2 = UiKit.Row(stack, "row2", 36);
-        UiKit.Horizontal(row2, 6);
+    static void Spacer(Transform parent) {
+        UiKit.Rect(parent, "spacer").gameObject
+             .AddComponent<LayoutElement>().flexibleWidth = 1;
+    }
 
-        AddBiome(row1, L.AllBiomes, -1);
-        for (int i = 0; i < Tiers.Ids.Length; i++)
-            AddBiome(i < 5 ? row1 : row2, BiomeLabel(i), i);
+    void BuildPlanSection() {
+        var sec = Section(_window, "plan", 1f, out _planEdge);
+        var head = UiKit.Row(sec, "head", 32);
+        UiKit.Horizontal(head, 6, 4, 4);
+        UiKit.Label(head, "title", L.CraftPlan, 20, UiKit.Gold);
+        Spacer(head);
+        // Тотем PlanBuild: только если PlanBuild стоит, кнопка, которая всегда
+        // отвечает «тотемов нет», только шумит.
+        if (PlanTotems.Available)
+            UiKit.Button(head, L.AddTotem, 104, 28, AddTotem);
+        var clear = UiKit.IconBtn(head, Art.Get("clear"), 30, () => {
+            Planner.Cart.Clear();
+            _planDirty = true;
+        }, 18);
+        UiKit.Tip(clear, L.TipClear);
+        _pinPlan = PinToggle(head, () => { Pin.TogglePlan(); _planDirty = true; });
+        UiKit.Tip(_pinPlan, L.TipPinPlan, L.TipPinPlanText);
+
+        var frame = UiKit.Rect(sec, "frame");
+        var fle = frame.gameObject.AddComponent<LayoutElement>();
+        fle.flexibleHeight = 1;
+        fle.minHeight = 110;
+        _cart = UiKit.ScrollBox(frame, 4);
+    }
+
+    /// <summary>
+    /// «Нужно собрать»: вид (сырьё или рецепты) рядом с заголовком, счёт
+    /// значками справа, станки плашками над списком материалов. Что делает
+    /// каждый значок, говорит подсказка при наведении.
+    /// </summary>
+    void BuildGatherSection() {
+        var sec = Section(_window, "gather", 1.3f, out _gatherEdge);
+        var head = UiKit.Row(sec, "head", 32);
+        UiKit.Horizontal(head, 6, 4, 4);
+        UiKit.Label(head, "title", L.ToGather, 20, UiKit.Gold);
+        Gap(head, 10);
+        // Сырьё и рецепты: одна кнопка, которая их переключает. Выбранный вид
+        // подписан золотом, второй виден рядом серым.
+        _viewBtn = UiKit.Button(head, "", 176, 30, () => {
+            _rawView = !_rawView; _planDirty = true;
+        }, 15);
+        UiKit.Tip(_viewBtn, L.Raw + " / " + L.Recipes, L.HintRaw + "\n" + L.HintRecipes);
+        Spacer(head);
+        _coalBtn = IconToggle(head, FirstIcon("coal"), L.Coal, L.TipCoalText,
+            () => Planner.CountCoal = !Planner.CountCoal);
+        _woodCoalBtn = IconToggle(head, FirstIcon("wood"), L.Firewood, L.TipFirewoodText,
+            () => Planner.BurnCoalFromWood = !Planner.BurnCoalFromWood);
+        _ownedBtn = IconToggle(head, FirstIcon("armorbronzechest", "armorleatherchest"), L.Owned,
+            L.TipOwnedText, () => {
+                Planner.UseOwned = !Planner.UseOwned;
+                if (OnOwnedChanged != null) OnOwnedChanged(Planner.UseOwned);
+                Ui.PinHud.Invalidate();
+            });
+        Gap(head, 10);
+        // Снимок хранилища: что лежит в сундуках рядом. Кнопка видна, пока
+        // материалы закреплены; золотом, когда снимка нет или он снят вдали
+        // от сундуков.
+        _snapshotBtn = UiKit.Button(head, L.UpdateSnapshot, 230, 30, TakeSnapshot, 14);
+        UiKit.Tip(_snapshotBtn, L.UpdateSnapshot, L.UpdateSnapshotText);
+        _pinGather = PinToggle(head, () => { Pin.ToggleGather(); _planDirty = true; });
+        UiKit.Tip(_pinGather, L.TipPinGather, L.TipPinGatherText);
+
+        // Откуда числа: снимок (сколько сундуков, когда, как далеко отсюда)
+        // или, пока не закреплено, сколько сундуков рядом сейчас.
+        _snapshotLine = UiKit.Label(UiKit.Row(sec, "snapshot", 18), "text", "", 13, UiKit.Dim);
+        UiKit.Stretch((RectTransform)_snapshotLine.transform);
+        // Снимок без единого сундука: сняли в поле. Красной полосой с кнопкой,
+        // чтобы ошибку было видно и чинилась она в одно нажатие.
+        var warn = UiKit.Row(sec, "snapshot-warn", 30);
+        UiKit.Horizontal(warn, 8, 8, 4);
+        var wbg = warn.gameObject.AddComponent<Image>();
+        wbg.color = new Color(0.94f, 0.48f, 0.37f, 0.14f);
+        wbg.raycastTarget = false;
+        UiKit.Frame(warn, new Color(0.94f, 0.48f, 0.37f, 0.55f), 1f);
+        _snapshotWarn = UiKit.Label(warn, "text", "", 13, new Color(0.96f, 0.52f, 0.40f));
+        _snapshotWarn.gameObject.AddComponent<LayoutElement>().flexibleWidth = 1;
+        var fix = UiKit.Button(warn, L.UpdateSnapshot, 220, 24, TakeSnapshot, 13);
+        Mark(fix, true);
+        _snapshotWarnRow = warn.gameObject;
+        _snapshotWarnRow.SetActive(false);
+        Bar.Legend(sec, 13f);
+
+        // Станки и переработка плашками: сетка сама переносит их на новую
+        // строку, когда окно узкое.
+        _strip = UiKit.Rect(sec, "stations");
+        var grid = _strip.gameObject.AddComponent<GridLayoutGroup>();
+        grid.cellSize = new Vector2(248f, 44f);
+        grid.spacing = new Vector2(8f, 6f);
+        grid.constraint = GridLayoutGroup.Constraint.Flexible;
+        grid.startAxis = GridLayoutGroup.Axis.Horizontal;
+        grid.childAlignment = TextAnchor.UpperLeft;
+
+        var frame = UiKit.Rect(sec, "frame");
+        var fle = frame.gameObject.AddComponent<LayoutElement>();
+        fle.flexibleHeight = 1;
+        fle.minHeight = 110;
+        _totals = UiKit.ScrollBox(frame, 3);
+    }
+
+    void TakeSnapshot() { Pin.Snapshot(); _planDirty = true; }
+
+    /// <summary>Значок-переключатель счёта: название и смысл в подсказке.</summary>
+    Button IconToggle(Transform parent, Sprite icon, string name, string text, System.Action flip) {
+        var btn = UiKit.IconBtn(parent, icon, 40, () => { flip(); _planDirty = true; }, 32);
+        if (icon == null) {
+            var label = btn.GetComponentInChildren<TMP_Text>(true);
+            if (label != null) label.text = name.Substring(0, 1);
+        }
+        UiKit.Tip(btn, name, text);
+        return btn;
+    }
+
+    /// <summary>Значок первого предмета из списка, что есть в игре: сборки и
+    /// моды переименовывают префабы, поэтому запасных несколько.</summary>
+    static Sprite FirstIcon(params string[] ids) {
+        foreach (var id in ids) {
+            var it = GameData.Get(id);
+            if (it != null && it.Icon != null) return it.Icon;
+        }
+        return null;
+    }
+
+    static Sprite PieceIcon(string prefab) {
+        var it = GameData.Get(GameData.PieceId(prefab));
+        return it != null ? it.Icon : null;
+    }
+
+    /* ————————————————————————— каталог поверх плана ————————————————————————— */
+
+    /// <summary>
+    /// Каталог выпадает из поиска поверх плана и закрывается щелчком мимо,
+    /// крестиком в поле или Esc. Колонкой во всё окно он занимал место, пока
+    /// в нём ничего не искали.
+    /// </summary>
+    void BuildCatalog() {
+        var catcher = UiKit.Rect(_window, "catalog-catcher");
+        catcher.gameObject.AddComponent<LayoutElement>().ignoreLayout = true;
+        UiKit.Stretch(catcher);
+        catcher.offsetMax = new Vector2(0f, -HeaderBottom);
+        var shade = catcher.gameObject.AddComponent<Image>();
+        shade.color = new Color(0f, 0f, 0f, 0.35f);
+        shade.raycastTarget = true;
+        var miss = catcher.gameObject.AddComponent<Button>();
+        miss.transition = Selectable.Transition.None;
+        miss.onClick.AddListener(CloseCatalog);
+        _catalogCatcher = catcher.gameObject;
+
+        var pop = UiKit.Rect(_window, "catalog");
+        pop.gameObject.AddComponent<LayoutElement>().ignoreLayout = true;
+        pop.anchorMin = new Vector2(0f, 0.16f);
+        pop.anchorMax = new Vector2(1f, 1f);
+        pop.offsetMin = new Vector2(16f, 0f);
+        pop.offsetMax = new Vector2(-16f, -HeaderBottom);
+        UiKit.Box(pop, "bg", UiKit.PanelSprite, UiKit.PanelSprite != null
+            ? Charcoal : new Color(0.13f, 0.12f, 0.11f, 0.97f));
+        UiKit.Box(pop, "veil", null, new Color(0.07f, 0.06f, 0.05f, 0.88f));
+        UiKit.Frame(pop, new Color(0.93f, 0.77f, 0.38f, 0.55f), 2f);
+
+        var col = pop.gameObject.AddComponent<VerticalLayoutGroup>();
+        col.padding = new RectOffset(12, 12, 10, 12);
+        col.spacing = 8;
+        col.childForceExpandHeight = false;
+        col.childForceExpandWidth = true;
+        col.childControlHeight = true;
+        col.childControlWidth = true;
+
+        var body = UiKit.Rect(pop, "body");
+        body.gameObject.AddComponent<LayoutElement>().flexibleHeight = 1;
+        var h = UiKit.Horizontal(body, 12);
+        h.childForceExpandHeight = true;
+
+        var frame = UiKit.Rect(body, "frame");
+        frame.gameObject.AddComponent<LayoutElement>().flexibleWidth = 1;
+        _catalog = UiKit.ScrollBox(frame);
+        BuildFilters(body);
+        _catalogPop = pop.gameObject;
+
+        _catalogPop.SetActive(false);
+        _catalogCatcher.SetActive(false);
+    }
+
+    void OpenCatalog() {
+        if (_catalogPop == null || _catalogPop.activeSelf) return;
+        _catalogCatcher.SetActive(true);
+        _catalogPop.SetActive(true);
+    }
+
+    void CloseCatalog() {
+        if (_catalogPop == null || !_catalogPop.activeSelf) return;
+        _catalogPop.SetActive(false);
+        _catalogCatcher.SetActive(false);
+        _card.Hide();
+        var es = EventSystem.current;
+        if (es != null && _search != null && es.currentSelectedGameObject == _search.gameObject)
+            es.SetSelectedGameObject(null);
+    }
+
+    /// <summary>Esc закрывает верхний слой окна, а не всё окно сразу.
+    /// false: закрывать нечего, пусть закрывается окно.</summary>
+    public bool Escape() {
+        if (_ask != null && _ask.activeSelf) { _ask.SetActive(false); return true; }
+        if (_about != null && _about.activeSelf) { _about.SetActive(false); return true; }
+        if (_settings != null && _settings.activeSelf) { HideSettings(); return true; }
+        if (_catalogPop != null && _catalogPop.activeSelf) { CloseCatalog(); return true; }
+        return false;
+    }
+
+    /// <summary>
+    /// Фильтры справа от списка, подписанными кнопками в две колонки: разделы
+    /// и биомы. Значки предметов на их месте каждый читал по-своему, а слово
+    /// читается одинаково.
+    /// </summary>
+    void BuildFilters(Transform parent) {
+        var side = UiKit.Rect(parent, "filters");
+        var le = side.gameObject.AddComponent<LayoutElement>();
+        le.minWidth = le.preferredWidth = 2 * FilterWidth + 10;
+        le.flexibleWidth = 0;
+        var h = UiKit.Horizontal(side, 10);
+        h.childAlignment = TextAnchor.UpperLeft;
+        h.childForceExpandHeight = true;
+
+        var kinds = FilterColumn(side);
+        AddTab(kinds, L.All, null);
+        AddTab(kinds, L.Weapons, Kind.Weapon);
+        AddTab(kinds, L.Armour, Kind.Armor);
+        AddTab(kinds, L.Tools, Kind.Tool);
+        AddTab(kinds, L.Food, Kind.Food);
+        AddTab(kinds, L.Materials, Kind.Material);
+        AddTab(kinds, L.Buildings, Kind.Piece);
+        AddTab(kinds, L.Other, Kind.Other);
+
+        var biomes = FilterColumn(side);
+        AddBiome(biomes, L.AllBiomes, -1);
+        for (int i = 0; i < Tiers.Ids.Length; i++) AddBiome(biomes, BiomeLabel(i), i);
+    }
+
+    const float FilterWidth = 150f;
+
+    static RectTransform FilterColumn(Transform parent) {
+        var col = UiKit.Rect(parent, "column");
+        var le = col.gameObject.AddComponent<LayoutElement>();
+        le.minWidth = le.preferredWidth = FilterWidth;
+        var v = col.gameObject.AddComponent<VerticalLayoutGroup>();
+        v.spacing = 4;
+        v.childForceExpandHeight = false;
+        v.childForceExpandWidth = true;
+        v.childControlHeight = true;
+        v.childControlWidth = true;
+        v.childAlignment = TextAnchor.UpperLeft;
+        return col;
+    }
+
+    /// <summary>Кнопка раздела. null: всё.</summary>
+    void AddTab(Transform parent, string label, Kind? kind) {
+        var btn = UiKit.Button(parent, label, FilterWidth, 30, () => {
+            _group = kind;
+            Search(force: true);
+        }, 15, TextAlignmentOptions.Left);
+        _tabs.Add(new KeyValuePair<Kind?, Button>(kind, btn));
     }
 
     static string BiomeLabel(int tier) {
         var name = L.Ru ? Tiers.Ru[tier] : Tiers.En[tier];
-        return "<color=" + Tiers.Color[tier] + ">" + "\u25CF" + "</color> " + name;
+        return "<color=" + Tiers.Color[tier] + ">\u25CF</color> " + name;
     }
 
     void AddBiome(Transform parent, string label, int tier) {
-        var btn = UiKit.ButtonAuto(parent, label, 34, () => {
+        var btn = UiKit.Button(parent, label, FilterWidth, 30, () => {
             if (!Progress.Unlocked(tier)) return;
             _biome = tier;
             Search(force: true);
-        }, 14);
+        }, 15, TextAlignmentOptions.Left);
         _biomes.Add(new KeyValuePair<int, Button>(tier, btn));
     }
 
     /// <summary>
-    /// Закрытый биом гасится, а не прячется: исчезающий ряд кнопок читается
-    /// как поломка, а погасшая — как «сюда пока нельзя». Название при этом
-    /// видно, и это осознанно: биомы игрок и так перечислит по карте, спойлер
-    /// не в них, а в предметах.
+    /// Закрытый биом гасится, а не прячется: исчезающая кнопка читается как
+    /// поломка, а погасшая как «сюда пока нельзя».
     /// </summary>
     void MarkBiomes() {
         foreach (var b in _biomes) {
@@ -397,149 +667,37 @@ public class PlannerPanel {
         }
     }
 
-    void BuildBody() {
-        var body = UiKit.Rect(_window, "body");
-        body.gameObject.AddComponent<LayoutElement>().flexibleHeight = 1;
-        var h = UiKit.Horizontal(body, 12);
-        h.childForceExpandHeight = true;
-
-        BuildRail(body);
-        BuildCatalogColumn(body);
-        BuildPlanColumn(body);
+    /// <summary>Подпись переключателя вида: «Сырьё / Рецепты», выбранное золотом.</summary>
+    void ShowView() {
+        if (_viewBtn == null) return;
+        string on = "#" + ColorUtility.ToHtmlStringRGB(UiKit.Gold);
+        string off = "#" + ColorUtility.ToHtmlStringRGB(UiKit.Dim);
+        string text = "<color=" + (_rawView ? on : off) + ">" + L.Raw + "</color>"
+                    + "<color=" + off + "> / </color>"
+                    + "<color=" + (_rawView ? off : on) + ">" + L.Recipes + "</color>";
+        foreach (var t in _viewBtn.GetComponentsInChildren<TMP_Text>(true)) t.text = text;
     }
 
-    /// <summary>Колонка разделов слева. Вертикальная, как в окне навыков и в
-    /// фильтрах сайта: горизонтальный ряд на семь разделов не помещался — на
-    /// прошлом заходе строка переключателей ровно так и вылезла за край
-    /// окна.</summary>
-    void BuildRail(Transform parent) {
-        var rail = UiKit.Rect(parent, "rail");
-        var le = rail.gameObject.AddComponent<LayoutElement>();
-        le.minWidth = le.preferredWidth = 150;
-        le.flexibleWidth = 0;
-
-        UiKit.Box(rail, "bg", UiKit.FieldSprite, new Color(0f, 0f, 0f, 0.30f));
-
-        var col = rail.gameObject.AddComponent<VerticalLayoutGroup>();
-        col.padding = new RectOffset(8, 8, 8, 8);
-        col.spacing = 4;
-        col.childForceExpandHeight = false;
-        col.childForceExpandWidth = true;
-        col.childControlHeight = true;
-        col.childControlWidth = true;
-        col.childAlignment = TextAnchor.UpperLeft;
-
-        UiKit.Caption(rail, L.Items, 18);
-        AddTab(rail, L.All, null);
-        AddTab(rail, L.Weapons, Kind.Weapon);
-        AddTab(rail, L.Armour, Kind.Armor);
-        AddTab(rail, L.Tools, Kind.Tool);
-        AddTab(rail, L.Food, Kind.Food);
-        AddTab(rail, L.Materials, Kind.Material);
-        AddTab(rail, L.Buildings, Kind.Piece);
-        AddTab(rail, L.Other, Kind.Other);
+    /// <summary>Булавка-переключатель у заголовка части. Без рамки кнопки:
+    /// это значок, а не ещё одна кнопка в ряду.</summary>
+    static Image PinToggle(Transform parent, System.Action onClick, string art = "pin") {
+        var icon = UiKit.Icon(parent, Art.Get(art), 22);
+        icon.color = UiKit.Dim;
+        icon.raycastTarget = true;
+        var btn = icon.gameObject.AddComponent<Button>();
+        btn.transition = Selectable.Transition.None;
+        btn.onClick.AddListener(() => onClick());
+        var hover = icon.gameObject.AddComponent<Hover>();
+        hover.Enter = () => icon.transform.localScale = Vector3.one * 1.15f;
+        hover.Exit = () => icon.transform.localScale = Vector3.one;
+        return icon;
     }
 
-    void BuildCatalogColumn(Transform parent) {
-        var left = UiKit.Rect(parent, "catalog-column");
-        var le = left.gameObject.AddComponent<LayoutElement>();
-        le.minWidth = le.preferredWidth = 390;
-        le.flexibleWidth = 0;
-
-        var col = left.gameObject.AddComponent<VerticalLayoutGroup>();
-        col.spacing = 6;
-        col.childForceExpandHeight = false;
-        col.childForceExpandWidth = true;
-        col.childControlHeight = true;
-        col.childControlWidth = true;
-
-        UiKit.Caption(left, L.Search, 18);
-
-        // Поле и крестик — один ряд с общей обводкой: крестик должен читаться
-        // как часть поля, а не как отдельная кнопка рядом.
-        var searchRow = UiKit.Row(left, "search-row", 36);
-        // Справа отступ больше: крестик впритык к краю читался как часть
-        // соседней колонки.
-        UiKit.Horizontal(searchRow, 0, 1, 8);
-        UiKit.Frame(searchRow, new Color(0.93f, 0.77f, 0.38f, 0.32f), 1f);
-
-        _search = UiKit.Input(searchRow, L.SearchHint, 34);
-        _search.gameObject.GetComponent<LayoutElement>().flexibleWidth = 1;
-        UiKit.Button(searchRow, "\u00D7", 34, 26, () => {
-            _search.text = "";
-            Search(force: true);
-        });
-
-        _found = UiKit.Label(left, "found", "", 14, UiKit.Dim);
-        _found.gameObject.AddComponent<LayoutElement>().minHeight = 18;
-
-        var frame = UiKit.Rect(left, "frame");
-        frame.gameObject.AddComponent<LayoutElement>().flexibleHeight = 1;
-        _catalog = UiKit.ScrollBox(frame);
+    static void MarkPin(Image icon, bool on) {
+        if (icon != null) icon.color = on ? UiKit.Gold : UiKit.Dim;
     }
 
-    void BuildPlanColumn(Transform parent) {
-        var right = UiKit.Rect(parent, "plan-column");
-        right.gameObject.AddComponent<LayoutElement>().flexibleWidth = 1;
-        var col = right.gameObject.AddComponent<VerticalLayoutGroup>();
-        col.spacing = 6;
-        col.childForceExpandHeight = false;
-        col.childForceExpandWidth = true;
-        col.childControlHeight = true;
-        col.childControlWidth = true;
-
-        var cartHead = UiKit.Row(right, "cart-head", 30);
-        UiKit.Horizontal(cartHead, 8);
-        UiKit.Label(cartHead, "cart-title", L.CraftPlan, 20, UiKit.Gold)
-             .gameObject.AddComponent<LayoutElement>().flexibleWidth = 1;
-        // Закрепляется план целиком, а не строка по отдельности. Закрепляют
-        // то, что уже настроено — с количеством и качеством, — а в каталоге
-        // ни того, ни другого ещё нет. Одна кнопка вместо двух означает, что
-        // на вопрос «что сейчас закреплено» есть ровно один ответ.
-        _pinBtn = UiKit.Button(cartHead, L.PinPlan, 112, 24, () => {
-            if (Pin.SameAs(Planner.Cart)) Pin.Clear();
-            else Pin.Set(Planner.Cart);
-            _planDirty = true;
-        });
-        // Тотем PlanBuild — только если PlanBuild стоит: кнопка, которая всегда
-        // отвечает «тотемов нет», — лишний шум для всех остальных.
-        if (PlanTotems.Available)
-            UiKit.Button(cartHead, L.AddTotem, 104, 24, AddTotem);
-        // «Очистить» стоит у плана, который она чистит. В заголовке окна, рядом
-        // с «Закрыть», её принимали за «закрыть без сохранения».
-        UiKit.Button(cartHead, L.Clear, 104, 24, () => {
-            Planner.Cart.Clear();
-            _planDirty = true;
-        });
-        _cartCount = UiKit.Label(cartHead, "count", "", 14, UiKit.Dim,
-                                 TextAlignmentOptions.Right);
-        // Ширину подписи задаёт сам текст. Фиксированные 170 пикселей при
-        // выравнивании вправо оставляли между кнопкой и числом дыру в полполосы.
-        var cle0 = _cartCount.gameObject.AddComponent<LayoutElement>();
-        cle0.flexibleWidth = 0;
-
-        BuildCartColumns(right);
-
-        var cartFrame = UiKit.Rect(right, "cart-frame");
-        var cle = cartFrame.gameObject.AddComponent<LayoutElement>();
-        cle.flexibleHeight = 1;
-        cle.minHeight = 150;
-        _cart = UiKit.ScrollBox(cartFrame, 4);
-
-        BuildToggles(right);
-
-        UiKit.Label(right, "totals-title", L.ToGather, 20, UiKit.Gold)
-             .gameObject.AddComponent<LayoutElement>().minHeight = 26;
-
-        var totalsFrame = UiKit.Rect(right, "totals-frame");
-        var tle = totalsFrame.gameObject.AddComponent<LayoutElement>();
-        tle.flexibleHeight = 1.5f;
-        tle.minHeight = 180;
-        _totals = UiKit.ScrollBox(totalsFrame, 3);
-    }
-
-    /* Размеры блоков строки плана. Общие для строки и подписей над списком:
-     * подпись стоит ровно над своим блоком, только если ширины совпадают. */
+    /* Размеры блоков строки плана. */
     const float LevelsWidth = 4 * 28 + 3 * 4;    // четыре кнопки уровня
     const float QtyWidth = 32 + 36 + 32 + 2 * 4; // «−», число, «+»
     const float DelWidth = 28;
@@ -549,7 +707,7 @@ public class PlannerPanel {
     const int NameIndent = 4 + (int)FoldWidth + 6 + 26 + 6;
     const float BlockGap = 14;                   // зазор между блоками
 
-    /// <summary>Пустое место заданной ширины — зазор между блоками строки.</summary>
+    /// <summary>Пустое место заданной ширины: зазор между блоками строки.</summary>
     static void Gap(Transform parent, float w) {
         var le = UiKit.Rect(parent, "gap").gameObject.AddComponent<LayoutElement>();
         le.minWidth = le.preferredWidth = w;
@@ -566,71 +724,6 @@ public class PlannerPanel {
         return rt;
     }
 
-    /// <summary>
-    /// Подписи столбцов над списком: «Предмет», «Уровень предмета»,
-    /// «Количество».
-    ///
-    /// Без них ряд из четырёх цифр, «−», числа и «+» читался одной кашей:
-    /// уровень путали с количеством, а крестик — с ещё одной кнопкой счётчика.
-    /// Отступы повторяют строку внутри рамки прокрутки: слева отступ рамки и
-    /// строки, справа ещё и место под полосу прокрутки.
-    /// </summary>
-    void BuildCartColumns(Transform parent) {
-        var head = UiKit.Row(parent, "cart-columns", 18);
-        UiKit.Horizontal(head, 6, 10, 23);
-        Gap(head, FoldWidth);
-        Gap(head, 26);
-        var item = ColumnLabel(head, L.ColItem, TextAlignmentOptions.Left);
-        item.gameObject.GetComponent<LayoutElement>().flexibleWidth = 1;
-        Gap(head, BlockGap);
-        ColumnLabel(head, L.ColLevel, TextAlignmentOptions.Center, LevelsWidth);
-        Gap(head, BlockGap);
-        ColumnLabel(head, L.ColQty, TextAlignmentOptions.Center, QtyWidth);
-        Gap(head, BlockGap);
-        Gap(head, DelWidth);
-    }
-
-    static TextMeshProUGUI ColumnLabel(Transform parent, string text,
-                                       TextAlignmentOptions align, float w = -1) {
-        var t = UiKit.Label(parent, "col", text, 13, UiKit.Dim, align);
-        t.enableAutoSizing = true;
-        t.fontSizeMin = 10;
-        t.fontSizeMax = 13;
-        var le = t.gameObject.AddComponent<LayoutElement>();
-        le.minWidth = 0;
-        if (w > 0) { le.preferredWidth = w; le.flexibleWidth = 0; }
-        return t;
-    }
-
-    /// <summary>
-    /// Переключатели режима. Кнопками, а не Toggle: галочке нужен свой спрайт,
-    /// которого у игры под наш размер нет, а состояние прекрасно читается
-    /// цветом — включённое золотом, выключенное серым.
-    ///
-    /// Подписи короткие намеренно. «Сырьё и добыча» с соседями не влезало в
-    /// столбец и выпихивало его за край окна; смысл вынесен в подсказку внизу.
-    /// </summary>
-    void BuildToggles(Transform parent) {
-        var bar = UiKit.Row(parent, "toggles", 32);
-        UiKit.Horizontal(bar, 6);
-
-        _rawBtn = UiKit.Button(bar, L.Raw, 112, 30, () => {
-            _rawView = true; _planDirty = true;
-        }, 15);
-        _directBtn = UiKit.Button(bar, L.Recipes, 112, 30, () => {
-            _rawView = false; _planDirty = true;
-        }, 15);
-        _coalBtn = UiKit.Button(bar, L.Coal, 100, 30, () => {
-            Planner.CountCoal = !Planner.CountCoal; _planDirty = true;
-        }, 15);
-        _woodCoalBtn = UiKit.Button(bar, L.Firewood, 100, 30, () => {
-            Planner.BurnCoalFromWood = !Planner.BurnCoalFromWood; _planDirty = true;
-        }, 15);
-        _haveBtn = UiKit.Button(bar, L.Inventory, 124, 30, () => {
-            _countHave = !_countHave; _planDirty = true;
-        }, 15);
-    }
-
     static void Mark(Button b, bool on) {
         if (b == null) return;
         foreach (var t in b.GetComponentsInChildren<TMP_Text>(true))
@@ -638,15 +731,6 @@ public class PlannerPanel {
     }
 
     /* ————————————————————————— каталог ————————————————————————— */
-
-    /// <summary>Кнопка раздела. null — «Всё».</summary>
-    void AddTab(Transform parent, string label, Kind? kind) {
-        var btn = UiKit.Button(parent, label, 134, 34, () => {
-            _group = kind;
-            Search(force: true);
-        }, 15, TextAlignmentOptions.Left);
-        _tabs.Add(new KeyValuePair<Kind?, Button>(kind, btn));
-    }
 
     void Search(bool force = false) {
         var q = _search != null ? _search.text : "";
@@ -671,12 +755,6 @@ public class PlannerPanel {
             .ToList();
 
         int total = GameData.Items.Values.Count(i => i.HasRecipe);
-        _found.text = L.Found + _matches.Count;
-        if (_matches.Count < total) {
-            _found.text += L.OutOf + total;
-            if (_matches.Count == 0) _found.text += " — " + L.Filtered;
-        }
-
         // Ноль найденных при полном каталоге — либо фильтры, либо ошибка в них.
         // Снаружи это выглядит одинаково, поэтому состояние уходит в лог.
         if (_matches.Count == 0 && total > 0)
@@ -746,17 +824,22 @@ public class PlannerPanel {
     /* ————————————————————————— список и итог ————————————————————————— */
 
     void RefreshPlan() {
-        Mark(_rawBtn, _rawView);
-        Mark(_directBtn, !_rawView);
-        Mark(_coalBtn, Planner.CountCoal);
-        Mark(_woodCoalBtn, Planner.BurnCoalFromWood);
-        Mark(_haveBtn, _countHave);
+        ShowView();
+        UiKit.MarkIcon(_coalBtn, Planner.CountCoal);
+        UiKit.MarkIcon(_woodCoalBtn, Planner.BurnCoalFromWood);
+        UiKit.MarkIcon(_ownedBtn, Planner.UseOwned);
 
-        bool pinned = Pin.SameAs(Planner.Cart);
-        Mark(_pinBtn, pinned);
-        if (_pinBtn != null)
-            foreach (var t in _pinBtn.GetComponentsInChildren<TMP_Text>(true))
-                t.text = pinned ? L.Unpin : L.PinPlan;
+        MarkPin(_pinPlan, Pin.Plan);
+        MarkPin(_pinGather, Pin.Gather);
+        if (_planEdge != null) _planEdge.color = Pin.Plan ? UiKit.Gold : Color.clear;
+        if (_gatherEdge != null) _gatherEdge.color = Pin.Gather ? UiKit.Gold : Color.clear;
+        if (_snapshotBtn != null) {
+            if (_snapshotBtn.gameObject.activeSelf != Pin.Gather) _snapshotBtn.gameObject.SetActive(Pin.Gather);
+            Mark(_snapshotBtn, Pin.Stale || (Pin.HasSnapshot && Pin.Boxes == 0));
+        }
+        ShowSnapshotLine();
+        // Закреплённый план и есть план: любая правка здесь меняет подсказку.
+        Ui.PinHud.Invalidate();
         // Подсказка на экране считает по тому же переключателю, что и окно:
         // два разных разложения одного заказа сбивали бы с толку сильнее,
         // чем отсутствие у неё собственной настройки.
@@ -765,18 +848,20 @@ public class PlannerPanel {
         // Под строкой тотема — его постройки по видам. Строки из двух пулов,
         // поэтому порядок в списке ставим руками.
         int slot = 0, sub = 0, units = 0;
+        var owned = Planner.UseOwned ? Stock.Owned() : null;
         _open.RemoveWhere(x => !Planner.Cart.Contains(x));
         for (int i = 0; i < Planner.Cart.Count; i++) {
             if (i >= _cartRows.Count) _cartRows.Add(new CartRow(_cart, this));
             var e = Planner.Cart[i];
-            _cartRows[i].Show(e, _open.Contains(e));
+            _cartRows[i].Show(e, _open.Contains(e),
+                              Planner.MadeOf(e, owned).Count(h => h > 0));
             _cartRows[i].Go.transform.SetSiblingIndex(slot++);
             // Раскрытая строка — по ряду на каждый экземпляр: какой уже есть
             // и на каком уровне.
             if (_open.Contains(e) && Unfolds(GameData.Get(e.Id)))
                 for (int k = 0; k < e.Qty; k++) {
                     if (units >= _unitRows.Count) _unitRows.Add(new UnitRow(_cart, this));
-                    _unitRows[units].Show(e, k);
+                    _unitRows[units].Show(e, k, Planner.MadeOf(e, owned));
                     _unitRows[units++].Go.transform.SetSiblingIndex(slot++);
                 }
             if (!PlanTotems.IsTotem(e.Id)) continue;
@@ -794,39 +879,25 @@ public class PlannerPanel {
         for (int i = sub; i < _pieceRows.Count; i++) _pieceRows[i].Hide();
         for (int i = units; i < _unitRows.Count; i++) _unitRows[i].Hide();
 
-        int pieces = Planner.Cart.Sum(e => e.Qty);
-        _cartCount.text = pieces > 0 ? L.TotalItems + pieces : "";
-
-        var totals = _rawView ? Planner.Raw() : Planner.Direct();
-        if (_countHave) totals = Stock.Subtract(totals, Stock.Count());
-
-        var mats = totals
-            .OrderByDescending(kv => kv.Value)
-            .ThenBy(kv => GameData.NameOf(kv.Key))
-            .Select(kv => new TotalRow.Data {
-                Icon = GameData.Get(kv.Key) != null ? GameData.Get(kv.Key).Icon : null,
-                Name = GameData.NameOf(kv.Key) + BuyNote(kv.Key),
-                Value = kv.Value.ToString(),
-            }).ToList();
-
-        // Материалы — в две колонки. Полтора десятка позиций в одну колонку
-        // занимают всю высоту окна, а половина ширины при этом пустует.
-        int rows = (mats.Count + 1) / 2;
-        int order = 0;
-        for (int i = 0; i < rows; i++) {
-            if (i >= _pairs.Count) _pairs.Add(new TotalPair(_totals));
-            var pair = _pairs[i];
-            pair.Show(mats[i * 2],
-                      i * 2 + 1 < mats.Count ? mats[i * 2 + 1] : (TotalRow.Data?)null);
-            pair.Go.transform.SetSiblingIndex(order++);
+        // Материалы полосами: сундуки (из снимка, а пока не закреплено, сундуки
+        // рядом), рюкзак и что ещё добыть. Больше всего добывать сверху,
+        // добытое внизу и тусклое.
+        var mats = Pin.Breakdown(Pin.Gather && Pin.HasSnapshot)
+            .OrderBy(r => r.Done)
+            .ThenByDescending(r => r.Left)
+            .ThenBy(r => GameData.NameOf(r.Id))
+            .ToList();
+        for (int i = 0; i < mats.Count; i++) {
+            if (i >= _materialRows.Count) _materialRows.Add(new MaterialRow(_totals));
+            _materialRows[i].Show(mats[i], BuyNote(mats[i].Id));
+            _materialRows[i].Go.transform.SetSiblingIndex(i);
         }
-        for (int i = rows; i < _pairs.Count; i++) _pairs[i].Hide();
+        for (int i = mats.Count; i < _materialRows.Count; i++) _materialRows[i].Hide();
 
         var plan = Planner.Process(Planner.Refine());
         var notes = new List<TotalRow.Data>();
         AddStations(notes);
         if (plan.Count > 0) {
-            notes.Add(new TotalRow.Data { Name = L.Processing, Header = true });
             foreach (var row in plan) {
                 notes.Add(new TotalRow.Data {
                     Icon = GameData.StationIcon(row.Station),
@@ -836,25 +907,14 @@ public class PlannerPanel {
                 });
             }
         }
-        // Порядок строк задаётся явно: пары и заметки лежат в разных пулах и
-        // дописываются в конец по мере роста, поэтому на второй перерисовке
-        // новая пара оказалась бы ниже «Переработки».
-        for (int i = 0; i < notes.Count; i++) {
-            if (i >= _notes.Count) _notes.Add(new TotalRow(_totals));
-            _notes[i].Show(notes[i]);
-            _notes[i].Go.transform.SetSiblingIndex(order++);
+        // Станки и переработка: плашками над списком. Заголовки разделов не
+        // нужны, плашку узнают по значку станка.
+        var cards = notes.Where(d => !d.Header).ToList();
+        for (int i = 0; i < cards.Count; i++) {
+            if (i >= _cards.Count) _cards.Add(new StationCard(_strip));
+            _cards[i].Show(cards[i]);
         }
-        for (int i = notes.Count; i < _notes.Count; i++) _notes[i].Hide();
-
-        // Про закреплённое говорим, пока оно закреплено: это единственное
-        // состояние окна, которое переживает его закрытие, и молчать о нём
-        // значит оставить игрока гадать, откуда на экране взялась панель.
-        _hint.text =
-            pinned ? L.HintPinned
-            : Planner.Cart.Count == 0 ? L.HintEmpty
-            : plan.Count > 0 ? L.HintProcessing
-            : _rawView ? L.HintRaw
-            : L.HintRecipes;
+        for (int i = cards.Count; i < _cards.Count; i++) _cards[i].Hide();
     }
 
     /// <summary>
@@ -943,6 +1003,28 @@ public class PlannerPanel {
 
     public void MarkDirty() { _planDirty = true; }
 
+    /// <summary>Строка над материалами: откуда взяты сундуки.</summary>
+    void ShowSnapshotLine() {
+        if (_snapshotLine == null) return;
+        bool field = Pin.Gather && Pin.HasSnapshot && Pin.Boxes == 0;
+        if (_snapshotWarnRow.activeSelf != field) _snapshotWarnRow.SetActive(field);
+        if (field) {
+            _snapshotWarn.text = L.SnapshotEmpty(Pin.At, Pin.DistanceFromSnapshot());
+            _snapshotLine.text = "";
+            return;
+        }
+        if (Pin.Gather && Pin.HasSnapshot) {
+            _snapshotLine.text = L.SnapshotLine(Pin.Boxes, Pin.At, Pin.DistanceFromSnapshot(),
+                                                AutoSnapshot.LastWasAuto);
+        } else if (Pin.Gather) {
+            _snapshotLine.text = L.PinStale;
+        } else {
+            int boxes;
+            Stock.ChestsOnly(out boxes);
+            _snapshotLine.text = L.ChestsNearby(boxes);
+        }
+    }
+
     /// <summary>
     /// Раскрывается ли строка на экземпляры. Только у того, что улучшают:
     /// «уже есть на первом уровне» у еды или стрел ничего не значит — их
@@ -977,56 +1059,128 @@ public class PlannerPanel {
         Search(force: true);
     }
 
+    /// <summary>
+    /// Настройки одной колонкой, разделами по смыслу: каталог, хранилище,
+    /// закреплённая панель, общее. Слева что это, справа чем менять; пояснения
+    /// в подсказках, а не строками под кнопками. Закрывается крестиком.
+    /// </summary>
     void BuildSettings() {
-        var box = Overlay("settings", 460f, 540f);
+        var box = Overlay("settings", 520f, 640f);
         _settings = box.parent.gameObject;
 
-        UiKit.Label(box, "title", L.Settings, 22, UiKit.Gold)
-             .gameObject.AddComponent<LayoutElement>().minHeight = 30;
+        var head = UiKit.Row(box, "title", 32);
+        UiKit.Horizontal(head, 8);
+        var title = UiKit.Label(head, "title", L.Settings, 22, UiKit.Gold);
+        title.gameObject.AddComponent<LayoutElement>().flexibleWidth = 1;
+        UiKit.Button(head, L.Info, 96, 30, ShowAbout, 13);
+        var close = UiKit.Button(head, "×", 30, 30, HideSettings, 18);
+        UiKit.Tip(close, L.Close);
 
-        // Три режима — три кнопки в ряд, а не переключатель по кругу: по
+        /* Каталог. */
+        SettingsSection(box, L.SectionCatalogue);
+        // Три режима: три кнопки в ряд, а не переключатель по кругу: по
         // кругу не видно, что вариантов больше двух и какой будет следующим.
-        UiKit.Label(box, "modes", L.SpoilersTitle, 16, UiKit.Ink)
-             .gameObject.AddComponent<LayoutElement>().minHeight = 22;
-        var modes = Line(box);
+        var modes = SettingsRow(box, L.SpoilersTitle, null, null);
         foreach (Progress.Mode mode in System.Enum.GetValues(typeof(Progress.Mode))) {
             var m = mode;
-            _modeBtns.Add(UiKit.Button(modes, L.ModeName(m), 130, 30, () => {
+            var mb = UiKit.Button(modes, L.ModeName(m), 104, 26, () => {
                 Progress.Current = m;
                 if (OnSpoilersChanged != null) OnSpoilersChanged(m);
                 Progress.Refresh();
                 RefreshSettings();
-            }, 15));
+            }, 13);
+            UiKit.Tip(mb, L.ModeName(m), L.ModeHint(m));
+            _modeBtns.Add(mb);
         }
-        _modeHint = Hint(box, "");
-
-        _openLine = UiKit.Label(box, "open", "", 14, UiKit.Ink);
-        _openLine.gameObject.AddComponent<LayoutElement>().minHeight = 22;
-
-        _chestBtn = UiKit.Button(Line(box), L.UseChests, 320, 30, () => {
-            Chests = !Chests;
-            if (OnChestsChanged != null) OnChestsChanged(Chests);
-            RefreshSettings();
-        }, 16, TextAlignmentOptions.Left);
-        Hint(box, L.UseChestsHint);
-
-        _cardBtn = UiKit.Button(Line(box), L.CardShow, 320, 30, () => {
+        _openLine = UiKit.Label(UiKit.Row(box, "open", 18), "text", "", 13, UiKit.Dim);
+        UiKit.Stretch((RectTransform)_openLine.transform);
+        _cardSw = new UiKit.Switch(SettingsRow(box, L.CardShow, L.CardShow, L.CardHint), () => {
             ItemCard.Enabled = !ItemCard.Enabled;
             if (OnCardChanged != null) OnCardChanged(ItemCard.Enabled, ItemCard.Compare);
             RefreshSettings();
-        }, 16, TextAlignmentOptions.Left);
-        _compareBtn = UiKit.Button(Line(box), L.CardCompare, 320, 30, () => {
+        });
+        _compareSw = new UiKit.Switch(SettingsRow(box, L.CardCompare, L.CardCompare, L.CardHint), () => {
             ItemCard.Compare = !ItemCard.Compare;
             if (OnCardChanged != null) OnCardChanged(ItemCard.Enabled, ItemCard.Compare);
             RefreshSettings();
-        }, 16, TextAlignmentOptions.Left);
-        Hint(box, L.CardHint);
+        });
 
-        var foot = UiKit.Row(box, "foot", 34);
-        UiKit.Horizontal(foot, 8);
-        UiKit.Rect(foot, "spacer").gameObject
-             .AddComponent<LayoutElement>().flexibleWidth = 1;
-        UiKit.Button(foot, L.Done, 120, 30, HideSettings);
+        /* Хранилище. */
+        SettingsSection(box, L.SectionStorage);
+        _chestSw = new UiKit.Switch(SettingsRow(box, L.UseChests, L.UseChests, L.UseChestsHint), () => {
+            Chests = !Chests;
+            if (OnChestsChanged != null) OnChestsChanged(Chests);
+            RefreshSettings();
+        });
+        // Радиус снимка хранилища: шагами по десять метров.
+        var radius = SettingsRow(box, L.SnapshotRange, L.SnapshotRange, L.UpdateSnapshotText);
+        UiKit.Button(radius, "−", 28, 26, () => StepRadius(-10f), 15);
+        _radiusValue = UiKit.Label(radius, "value", "", 15, UiKit.Gold, TextAlignmentOptions.Center);
+        _radiusValue.gameObject.AddComponent<LayoutElement>().preferredWidth = 60;
+        UiKit.Button(radius, "+", 28, 26, () => StepRadius(10f), 15);
+        // Автоснимок дома: выключен, пока игрок сам не включит.
+        _autoSw = new UiKit.Switch(SettingsRow(box, L.AutoSnapshot, L.AutoSnapshot, L.AutoSnapshotText), () => {
+            AutoSnapshot.Enabled = !AutoSnapshot.Enabled;
+            AutoSnapshot.Reset();
+            if (OnAutoSnapshotChanged != null) OnAutoSnapshotChanged(AutoSnapshot.Enabled);
+            RefreshSettings();
+        });
+        var home = SettingsRow(box, "", L.SetHome, L.SetHomeText);
+        _homeLine = home.Find("label").GetComponent<TextMeshProUGUI>();
+        _homeLine.color = UiKit.Dim;
+        _homeLine.fontSize = 13;
+        var setHome = UiKit.Button(home, L.SetHome, 190, 26, () => {
+            AutoSnapshot.SetHomeHere();
+            RefreshSettings();
+        }, 13);
+        UiKit.Tip(setHome, L.SetHome, L.SetHomeText);
+
+        /* Закреплённая панель. */
+        SettingsSection(box, L.SectionPinned);
+        var style = SettingsRow(box, L.PinnedStyle, null, null);
+        _numbersBtn = UiKit.Button(style, L.StyleNumbers, 96, 26, () => SetPinBars(false), 13);
+        _barsBtn = UiKit.Button(style, L.StyleBars, 96, 26, () => SetPinBars(true), 13);
+
+        /* Общее. */
+        SettingsSection(box, L.SectionGeneral);
+        var lang = SettingsRow(box, L.Language, null, null);
+        _langEn = UiKit.Button(lang, "English", 96, 26, () => SetLanguage(false), 13);
+        _langRu = UiKit.Button(lang, "Русский", 96, 26, () => SetLanguage(true), 13);
+    }
+
+    /// <summary>Заголовок раздела: мелко, заглавными, с чертой под ним.</summary>
+    static void SettingsSection(RectTransform box, string text) {
+        UiKit.Row(box, "gap", 4);
+        var t = UiKit.Label(UiKit.Row(box, "section", 18), "text", text.ToUpperInvariant(), 12, UiKit.Dim);
+        UiKit.Stretch((RectTransform)t.transform);
+        t.characterSpacing = 6;
+        var line = UiKit.Row(box, "rule", 1).gameObject.AddComponent<Image>();
+        line.color = UiKit.Line;
+        line.raycastTarget = false;
+    }
+
+    /// <summary>Строка настройки: подпись слева (с подсказкой, если есть),
+    /// элементы справа добавляет вызывающий.</summary>
+    static RectTransform SettingsRow(RectTransform box, string label, string tipTitle, string tipText) {
+        var row = UiKit.Row(box, "row", 30);
+        UiKit.Horizontal(row, 6, 2, 0);
+        var t = UiKit.Label(row, "label", label, 15, UiKit.Ink);
+        t.overflowMode = TextOverflowModes.Ellipsis;
+        var le = t.gameObject.AddComponent<LayoutElement>();
+        le.flexibleWidth = 1;
+        le.minWidth = 0;
+        if (!string.IsNullOrEmpty(tipTitle)) {
+            t.raycastTarget = true;
+            UiKit.Tip(t, tipTitle, tipText);
+        }
+        return row;
+    }
+
+    void SetLanguage(bool ru) {
+        if (L.Ru == ru) return;
+        L.Ru = ru;
+        if (OnLanguageChanged != null) OnLanguageChanged(L.Ru);
+        Rebuild();
     }
 
     /// <summary>
@@ -1051,13 +1205,47 @@ public class PlannerPanel {
         return t;
     }
 
+    const float MinRadius = 20f, MaxRadius = 150f;
+
+    void StepRadius(float by) {
+        float next = Mathf.Clamp(Mathf.Round((Stock.SnapshotRadius + by) / 10f) * 10f, MinRadius, MaxRadius);
+        if (Mathf.Approximately(next, Stock.SnapshotRadius)) return;
+        Stock.SnapshotRadius = next;
+        if (OnSnapshotRadiusChanged != null) OnSnapshotRadiusChanged(next);
+        RefreshSettings();
+        _planDirty = true;
+    }
+
+    void SetPinBars(bool bars) {
+        Ui.PinHud.Bars = bars;
+        if (OnPinBarsChanged != null) OnPinBarsChanged(bars);
+        Ui.PinHud.Invalidate();
+        RefreshSettings();
+    }
+
     void RefreshSettings() {
         for (int i = 0; i < _modeBtns.Count; i++)
             Mark(_modeBtns[i], (int)Progress.Current == i);
         if (_modeHint != null) _modeHint.text = L.ModeHint(Progress.Current);
-        Mark(_chestBtn, Chests);
-        Mark(_cardBtn, ItemCard.Enabled);
-        Mark(_compareBtn, ItemCard.Enabled && ItemCard.Compare);
+        if (_chestSw != null) _chestSw.Set(Chests);
+        Mark(_numbersBtn, !Ui.PinHud.Bars);
+        Mark(_barsBtn, Ui.PinHud.Bars);
+        if (_radiusValue != null) _radiusValue.text = Mathf.RoundToInt(Stock.SnapshotRadius) + L.Metres;
+        if (_autoSw != null) _autoSw.Set(AutoSnapshot.Enabled);
+        Mark(_langEn, !L.Ru);
+        Mark(_langRu, L.Ru);
+        if (_homeLine != null) {
+            Vector3 h;
+            var me = Player.m_localPlayer;
+            if (!AutoSnapshot.TryHome(out h)) _homeLine.text = L.HomeNone;
+            else {
+                int m = me != null ? Mathf.RoundToInt(Vector3.Distance(me.transform.position, h)) : -1;
+                _homeLine.text = (AutoSnapshot.Home.HasValue ? L.HomeSet : L.HomeBed)
+                               + (m >= 0 ? " · " + m + L.Metres : "");
+            }
+        }
+        if (_cardSw != null) _cardSw.Set(ItemCard.Enabled);
+        if (_compareSw != null) _compareSw.Set(ItemCard.Enabled && ItemCard.Compare);
         if (_openLine != null) {
             switch (Progress.Current) {
                 case Progress.Mode.Discovered:
@@ -1089,25 +1277,17 @@ public class PlannerPanel {
         UiKit.Label(box, "title", L.Title + "  " + Forgeplan.Build.Version, 22, UiKit.Gold)
              .gameObject.AddComponent<LayoutElement>().minHeight = 28;
 
-        // Автор и его Steam на одной строке: отдельная строка под одну иконку
-        // растила окно на пустом месте.
-        var who = UiKit.Row(box, "author", 34);
-        UiKit.Horizontal(who, 8);
-        var name = UiKit.Label(who, "name", L.Author + ": Biozip", 16, UiKit.Ink);
-        var nle = name.gameObject.AddComponent<LayoutElement>();
-        nle.preferredWidth = name.GetPreferredValues(name.text).x + 4f;
-        LinkButton(who, "steam", "Steam", Links.Steam, 30f);
-        UiKit.Rect(who, "spacer").gameObject
-             .AddComponent<LayoutElement>().flexibleWidth = 1;
+        // Чей это мод: форк ForgePlanner от Biozip. Ссылки словами, без
+        // значков чужих сайтов: оригинал, его сайт и исходники форка.
+        UiKit.Label(UiKit.Row(box, "author", 26), "name", L.ForkOf, 16, UiKit.Ink);
 
         Hint(box, L.DataLine);
 
-        var row = UiKit.Row(box, "links", 48);
+        var row = UiKit.Row(box, "links", 34);
         UiKit.Horizontal(row, 10);
-        LinkButton(row, "globe", L.Site, Links.Site);
-        LinkButton(row, "nexus", "Nexus Mods", Links.Nexus);
-        LinkButton(row, "thunderstore", "Thunderstore", Links.Thunderstore);
-        LinkButton(row, "hexium", "Hexium", Links.Hexium);
+        TextLink(row, L.LinkOriginal, Links.Original);
+        TextLink(row, L.SiteOriginal, Links.Site);
+        TextLink(row, L.LinkSource, Links.Source);
         UiKit.Rect(row, "spacer").gameObject
              .AddComponent<LayoutElement>().flexibleWidth = 1;
 
@@ -1119,22 +1299,10 @@ public class PlannerPanel {
         UiKit.Button(foot, L.Close, 120, 30, () => _about.SetActive(false));
     }
 
-    /// <summary>
-    /// Кнопка-ссылка. Без адреса — гаснет и не нажимается: пустая кнопка,
-    /// которая молча ничего не делает, хуже отсутствующей.
-    /// </summary>
-    void LinkButton(RectTransform parent, string icon, string title, string url,
-                    float size = 44f) {
-        bool live = !string.IsNullOrEmpty(url);
-        var btn = UiKit.IconButton(parent, Ui.Art.Get(icon), size,
-            () => { if (live) AskLink(title, url); },
-            live ? UiKit.Ink : UiKit.Faint);
-        btn.interactable = live;
-        if (!live) {
-            var note = UiKit.Label(parent, "none", L.NoAddress, 12, UiKit.Faint,
-                                   TextAlignmentOptions.Left);
-            note.gameObject.AddComponent<LayoutElement>().preferredWidth = 86;
-        }
+
+    /// <summary>Ссылка словом: спросить и открыть.</summary>
+    void TextLink(RectTransform parent, string title, string url) {
+        UiKit.ButtonAuto(parent, title, 30, () => AskLink(title, url), 14);
     }
 
     /// <summary>
@@ -1351,6 +1519,7 @@ public class PlannerPanel {
                 _quality.Add(UiKit.Button(levels, q.ToString(), 28, 26, () => {
                     if (_entry != null) { _entry.Quality = level; owner.MarkDirty(); }
                 }, 14));
+                UiKit.Tip(_quality[_quality.Count - 1], L.TipLevel(level));
             }
             // У вещи без уровней вместо пустоты — прочерк: пустое место под
             // подписью «Уровень» выглядело как недорисованная строка.
@@ -1390,13 +1559,12 @@ public class PlannerPanel {
             hover.Exit = () => owner._card.Leave(_go);
         }
 
-        public void Show(Entry e, bool open) {
+        public void Show(Entry e, bool open, int made) {
             _entry = e;
             var it = GameData.Get(e.Id);
             _icon.sprite = it != null ? it.Icon : null;
             _icon.color = _icon.sprite != null ? Color.white : Color.clear;
             _name.text = it != null ? it.Shown : e.Id;
-            int made = e.MadeCount;
             if (made > 0)
                 _name.text += "  <size=80%><color=#8A8172>" + L.MadeSummary(made) + "</color></size>";
 
@@ -1459,7 +1627,9 @@ public class PlannerPanel {
             for (int q = 1; q <= 4; q++) {
                 int level = q;
                 _levels.Add(UiKit.Button(levels, q.ToString(), 28, 22, () => {
-                    if (_entry == null) return;
+                    // Со «Своим» уровни приходят из сундуков, отметки руками
+                    // ничего бы не поменяли, поэтому молча ждём, пока его выключат.
+                    if (_entry == null || Planner.UseOwned) return;
                     while (_entry.Made.Count <= _index) _entry.Made.Add(0);
                     _entry.Made[_index] = Mathf.Min(_entry.Made[_index], _entry.Quality) == level
                         ? 0 : level;
@@ -1472,13 +1642,16 @@ public class PlannerPanel {
             Gap(rt, DelWidth);
         }
 
-        public void Show(Entry e, int index) {
+        /// <param name="made">Уровни, по которым считает план: Entry.Made или
+        /// найденное со «Своим», см. Planner.MadeOf.</param>
+        public void Show(Entry e, int index, List<int> made) {
             _entry = e;
             _index = index;
             int target = Mathf.Max(1, e.Quality);
-            int had = index < e.Made.Count ? Mathf.Min(e.Made[index], target) : 0;
+            int had = index < made.Count ? Mathf.Min(made[index], target) : 0;
             _name.text = "\u2116" + (index + 1) + "  \u00B7  "
-                + (had <= 0 ? L.UnitNew : had >= target ? L.UnitDone : L.UnitHas(had));
+                + (had <= 0 ? L.UnitNew : had >= target ? L.UnitDone : L.UnitHas(had))
+                + (Planner.UseOwned && had > 0 ? "  <size=80%>" + L.UnitFound + "</size>" : "");
             for (int q = 0; q < _levels.Count; q++) {
                 bool on = q < target;
                 _levels[q].gameObject.SetActive(on);
@@ -1623,6 +1796,117 @@ public class PlannerPanel {
             bool hasBtn = !string.IsNullOrEmpty(d.Action);
             if (hasBtn && _btnLabel != null) _btnLabel.text = d.Action;
             if (_btn.gameObject.activeSelf != hasBtn) _btn.gameObject.SetActive(hasBtn);
+            if (!_go.activeSelf) _go.SetActive(true);
+        }
+
+        public void Hide() { if (_go.activeSelf) _go.SetActive(false); }
+    }
+
+    /// <summary>
+    /// Строка материала в окне: значок, название, полоса «сундуки, рюкзак,
+    /// ещё добыть» с числами внутри и сколько нужно всего.
+    /// </summary>
+    class MaterialRow {
+        readonly GameObject _go;
+        readonly CanvasGroup _fade;
+        readonly Image _icon;
+        readonly TextMeshProUGUI _name, _total;
+        readonly Bar _bar;
+
+        public GameObject Go { get { return _go; } }
+
+        public MaterialRow(Transform parent) {
+            var rt = UiKit.Row(parent, "material", 26);
+            _go = rt.gameObject;
+            _fade = _go.AddComponent<CanvasGroup>();
+            UiKit.Horizontal(rt, 8, 4, 6);
+            _icon = UiKit.Icon(rt, null, 22);
+            _name = UiKit.Label(rt, "name", "", 15, UiKit.Ink);
+            _name.overflowMode = TextOverflowModes.Ellipsis;
+            var nle = _name.gameObject.AddComponent<LayoutElement>();
+            nle.preferredWidth = 230;
+            nle.minWidth = 100;
+            _bar = new Bar(rt, 20f, 12f);
+            _total = UiKit.Label(rt, "total", "", 15, UiKit.Ink, TextAlignmentOptions.Right);
+            var tle = _total.gameObject.AddComponent<LayoutElement>();
+            tle.preferredWidth = 48;
+            tle.minWidth = 36;
+        }
+
+        public void Show(Pin.MatRow r, string note) {
+            var it = GameData.Get(r.Id);
+            _icon.sprite = it != null ? it.Icon : null;
+            _icon.color = _icon.sprite != null ? Color.white : Color.clear;
+            _name.text = GameData.NameOf(r.Id) + note;
+            _bar.Set(r.Chests, r.Bag, Mathf.Max(0, r.Left));
+            _total.text = r.Total.ToString();
+            _fade.alpha = r.Done ? 0.45f : 1f;
+            if (!_go.activeSelf) _go.SetActive(true);
+        }
+
+        public void Hide() { if (_go.activeSelf) _go.SetActive(false); }
+    }
+
+    /// <summary>
+    /// Плашка станка или переработки: значок, название, под ним где он и
+    /// какого уровня (или сколько и как долго). Нет станка или он мал:
+    /// вторая строка красная, и рядом «+», чтобы добавить его в план.
+    /// </summary>
+    class StationCard {
+        static readonly Color Warn = new Color(0.96f, 0.45f, 0.36f);
+
+        readonly GameObject _go;
+        readonly Image _icon, _arrow;
+        readonly TextMeshProUGUI _name, _value;
+        readonly Button _add;
+        System.Action _action;
+
+        public StationCard(Transform parent) {
+            var rt = UiKit.Rect(parent, "card");
+            _go = rt.gameObject;
+            UiKit.Box(rt, "bg", UiKit.FieldSprite, new Color(0f, 0f, 0f, 0.45f));
+            UiKit.Horizontal(rt, 8, 8, 6);
+            _icon = UiKit.Icon(rt, null, 26);
+
+            var text = UiKit.Rect(rt, "text");
+            text.gameObject.AddComponent<LayoutElement>().flexibleWidth = 1;
+            var v = text.gameObject.AddComponent<VerticalLayoutGroup>();
+            v.childControlHeight = true;
+            v.childControlWidth = true;
+            v.childForceExpandHeight = false;
+            v.childForceExpandWidth = true;
+            v.childAlignment = TextAnchor.MiddleLeft;
+            _name = UiKit.Label(text, "name", "", 14, UiKit.Ink);
+            _name.overflowMode = TextOverflowModes.Ellipsis;
+            _value = UiKit.Label(text, "value", "", 12, UiKit.Dim);
+            _value.overflowMode = TextOverflowModes.Ellipsis;
+
+            _arrow = UiKit.Icon(rt, Art.Get("arrow"), 14);
+            _arrow.gameObject.SetActive(false);
+            _add = UiKit.Button(rt, "+", 26, 24, () => { if (_action != null) _action(); }, 16);
+            _add.gameObject.SetActive(false);
+        }
+
+        public void Show(TotalRow.Data d) {
+            _icon.sprite = d.Icon;
+            _icon.color = d.Icon != null ? Color.white : Color.clear;
+            _name.text = d.Name;
+            _value.text = d.Value ?? "";
+            _value.color = d.Muted ? Warn : UiKit.Dim;
+
+            // Без картинки стрелку не показываем: Image с пустым спрайтом
+            // рисует сплошной прямоугольник.
+            bool hasArrow = d.Bearing.HasValue && _arrow.sprite != null;
+            if (_arrow.gameObject.activeSelf != hasArrow) _arrow.gameObject.SetActive(hasArrow);
+            if (hasArrow) {
+                _arrow.transform.localRotation = Quaternion.Euler(0f, 0f, -d.Bearing.Value);
+                _arrow.color = d.Muted ? UiKit.Dim : UiKit.Gold;
+            }
+
+            _action = d.OnAction;
+            bool hasAdd = d.OnAction != null;
+            if (_add.gameObject.activeSelf != hasAdd) _add.gameObject.SetActive(hasAdd);
+            if (hasAdd) UiKit.Tip(_add, d.Action ?? L.AddToPlan);
             if (!_go.activeSelf) _go.SetActive(true);
         }
 

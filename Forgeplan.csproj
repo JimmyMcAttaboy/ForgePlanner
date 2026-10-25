@@ -26,7 +26,7 @@
     <FileVersion>$(ModVersion).0</FileVersion>
 
     <TargetFramework>net472</TargetFramework>
-    <AssemblyName>Forgeplan</AssemblyName>
+    <AssemblyName>Provisioner</AssemblyName>
     <RootNamespace>Forgeplan</RootNamespace>
     <LangVersion>latest</LangVersion>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>

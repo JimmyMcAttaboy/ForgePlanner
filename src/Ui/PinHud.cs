@@ -48,6 +48,9 @@ public static class PinHud {
     /// ради того, чего ещё нет, — попросил игрок с выделенного сервера.
     /// </summary>
     public static bool HideDone;
+    /// <summary>«Материалы» полосами, а не числами. Ставит плагин из конфига,
+    /// меняется в настройках окна.</summary>
+    public static bool Bars;
 
     /// <summary>Сколько иконок закреплённого показывать под заголовком.</summary>
     const int MaxIcons = 8;
@@ -72,8 +75,17 @@ public static class PinHud {
     static GameObject _root;
     static RectTransform _panel;
     static TextMeshProUGUI _title, _empty;
+    /// <summary>Строка заголовка. Видна, только когда есть что сказать
+    /// (нет снимка, тотем далеко): слово «Закреплено» ничего не добавляло.</summary>
+    static GameObject _head;
     static RectTransform _list;
     static readonly List<Row> _rows = new List<Row>();
+    /// <summary>Часть «План»: строки позиций и подписи частей. Подписи видны,
+    /// только когда закреплены обе части: иначе хватает заголовка.</summary>
+    static RectTransform _planList;
+    static GameObject _refresh;
+    static TextMeshProUGUI _planHead, _planMore, _gatherHead;
+    static readonly List<PlanRow> _planRows = new List<PlanRow>();
     static TextMeshProUGUI _more;
     static RectTransform _icons;
     static readonly List<Image> _iconPool = new List<Image>();
@@ -175,7 +187,12 @@ public static class PinHud {
     /// <summary>Надо ли вообще что-то рисовать. Только дешёвые проверки:
     /// метод зовётся каждый кадр.</summary>
     static bool Show(bool plannerVisible) {
-        if (!Enabled || !Pin.Any) return false;
+        if (!Enabled || !Pin.Any || Planner.Cart.Count == 0) return false;
+        // Каталог рецептов строится при первом открытии окна. Без него план
+        // раскладывается в пустоту, и после входа в мир панель говорила
+        // «Всё собрано», пока окно не откроют. Строим сами; мир ещё не
+        // готов: панель ждёт. Готовый каталог: проверка ничего не стоит.
+        if (!GameData.Build()) return false;
         // Окно показывает те же числа крупнее и подробнее. Две копии одного
         // ответа на экране — это не вдвое полезнее, это мельтешение.
         if (plannerVisible) return false;
@@ -196,10 +213,14 @@ public static class PinHud {
         _panel = null;
         _bg = null;
         _title = _empty = _more = _move = _iconsMore = null;
-        _list = null;
+        _head = null;
+        _planHead = _planMore = _gatherHead = null;
+        _list = _planList = null;
+        _refresh = null;
         _icons = null;
         _tools = null;
         _rows.Clear();
+        _planRows.Clear();
         _iconPool.Clear();
         _dragMode = false;
         _dirty = true;
@@ -210,6 +231,7 @@ public static class PinHud {
         // Панель могла уйти вместе со сценой, минуя Drop: пулы тогда держат
         // уничтоженные строки и иконки. Строим всегда с чистого листа.
         _rows.Clear();
+        _planRows.Clear();
         _iconPool.Clear();
 
         _root = new GameObject("Forgeplan-pin", typeof(RectTransform));
@@ -252,14 +274,40 @@ public static class PinHud {
         // Заголовок, а справа — «−», «+» и «×». Они видны только в меню Esc,
         // как и подпись «можно перетащить»: в остальное время панель не
         // ловит мышь вовсе, и кнопкам там нечего делать.
-        var head = UiKit.Row(_panel, "head", 20f);
+        var head = UiKit.Row(_panel, "head", 18f);
         UiKit.Horizontal(head, 4);
-        _title = UiKit.Label(head, "title", L.Title, 14f, UiKit.Gold);
+        _title = UiKit.Label(head, "title", "", 12f, UiKit.Dim);
         var tle = _title.gameObject.AddComponent<LayoutElement>();
         tle.flexibleWidth = 1;
         tle.minWidth = 0;
-        var tools = UiKit.Rect(head, "tools");
-        UiKit.Horizontal(tools, 3);
+        _head = head.gameObject;
+
+        // Кнопки меню Esc вне разметки: прижаты к правому верхнему углу и
+        // висят над панелью, поэтому под них не нужна своя строка.
+        var tools = UiKit.Rect(_panel, "tools");
+        tools.gameObject.AddComponent<LayoutElement>().ignoreLayout = true;
+        tools.anchorMin = tools.anchorMax = new Vector2(1f, 1f);
+        tools.pivot = new Vector2(1f, 0f);
+        tools.anchoredPosition = new Vector2(0f, 2f);
+        UiKit.Horizontal(tools, 3).childAlignment = TextAnchor.LowerRight;
+        var fitTools = tools.gameObject.AddComponent<ContentSizeFitter>();
+        fitTools.horizontalFit = ContentSizeFitter.FitMode.PreferredSize;
+        fitTools.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+        // Обновить снимок хранилища, не открывая окна: вернулся к сундукам,
+        // открыл Esc, нажал. Видна, только пока «Материалы» закреплены.
+        var refresh = UiKit.Button(tools, "", 22, 18, () => { Pin.Snapshot(); _dirty = true; });
+        var rrt = UiKit.Rect((RectTransform)refresh.transform, "icon");
+        rrt.anchorMin = rrt.anchorMax = rrt.pivot = new Vector2(0.5f, 0.5f);
+        rrt.sizeDelta = new Vector2(13f, 13f);
+        var rimg = rrt.gameObject.AddComponent<Image>();
+        // Значок сундука из самой игры: это снимок хранилища, а не «обновить».
+        var chest = GameData.Get(GameData.PieceId("piece_chest_wood"));
+        rimg.sprite = chest != null && chest.Icon != null ? chest.Icon : Art.Get("refresh");
+        rimg.preserveAspect = true;
+        rimg.raycastTarget = false;
+        rimg.color = rimg.sprite != null ? Color.white : Color.clear;
+        UiKit.Tip(refresh, L.UpdateSnapshot);
+        _refresh = refresh.gameObject;
         UiKit.Button(tools, "\u2212", 22, 18, () => Rescale(-0.1f), 14);
         UiKit.Button(tools, "+", 22, 18, () => Rescale(0.1f), 14);
         UiKit.Button(tools, "\u00D7", 22, 18, Pin.Clear, 15);
@@ -274,6 +322,18 @@ public static class PinHud {
         for (int i = 0; i < MaxIcons; i++) _iconPool.Add(UiKit.Icon(_icons, null, 18));
         _iconsMore = UiKit.Label(_icons, "more", "", 12f, UiKit.Dim);
         UiKit.Row(_panel, "gap", 2f);
+
+        _planHead = UiKit.Label(_panel, "plan-head", L.CraftPlan, 12f, UiKit.Dim);
+        _planList = UiKit.Rect(_panel, "plan");
+        var pc = _planList.gameObject.AddComponent<VerticalLayoutGroup>();
+        pc.spacing = 2;
+        pc.childForceExpandHeight = false;
+        pc.childForceExpandWidth = true;
+        pc.childControlHeight = true;
+        pc.childControlWidth = true;
+        _planMore = UiKit.Label(_panel, "plan-more", "", 12f, UiKit.Faint);
+        _gatherHead = UiKit.Label(_panel, "gather-head", L.ToGather, 12f, UiKit.Dim);
+
 
         _list = UiKit.Rect(_panel, "list");
         var lc = _list.gameObject.AddComponent<VerticalLayoutGroup>();
@@ -291,6 +351,8 @@ public static class PinHud {
         _more = UiKit.Label(_panel, "more", "", 12f, UiKit.Faint);
         _move = UiKit.Label(_panel, "move", L.PinDrag, 12f, UiKit.Gold);
         _move.gameObject.SetActive(false);
+        // Кнопки Esc поверх всего остального на панели.
+        _tools.transform.SetAsLastSibling();
 
         ForgeplanPlugin.Log.LogInfo("закреплённый список поставлен: "
                                     + Where + " " + Offset);
@@ -298,11 +360,11 @@ public static class PinHud {
     }
 
     static void Refresh() {
-        _title.text = L.Pinned + " · " + Pin.Items.Count;
-        // Тотем выгрузился — числа по нему застыли. На панели нет строк
-        // плана, где это видно в окне, поэтому говорим в заголовке.
-        if (PlanTotems.AnyFar(Pin.Items))
-            _title.text += "  <size=85%><color=#8A8172>" + L.TotemFarShort + "</color></size>";
+        // Тотем выгрузился: числа по нему застыли. Нет снимка хранилища:
+        // сундуки не учтены. Только тогда у панели есть заголовок.
+        _title.text = PlanTotems.AnyFar(Pin.Items) ? L.TotemFarShort
+                    : Pin.Stale ? L.PinStale : "";
+        Active(_head, _title.text.Length > 0);
 
         // Сверху то, чего не хватает больше всего: с этим и идти копать.
         // Собранное опускается вниз, но не исчезает — иначе список тает на
@@ -310,19 +372,24 @@ public static class PinHud {
         // числах сортируем по имени, чтобы строки не перетасовывались сами
         // между пересчётами.
         ShowIcons();
+        ShowPlan();
+        Active(_refresh, Pin.Gather);
+        bool both = Pin.Plan && Pin.Gather;
+        Active(_planHead.gameObject, both);
+        Active(_gatherHead.gameObject, both);
 
-        var all0 = Pin.Rows();
+        var all0 = Pin.Gather ? Pin.Rows() : new List<Pin.MatRow>();
         var rows = all0.Where(r => !HideDone || !r.Done)
                       .OrderBy(r => r.Done)
-                      .ThenByDescending(r => r.Need - r.Have)
+                      .ThenByDescending(r => r.Left)
                       .ThenBy(r => GameData.NameOf(r.Id))
                       .ToList();
 
         // С HideDone собранные строки уже отсеяны: пустой список при непустом
         // заказе и значит «всё собрано».
         bool all = all0.Count > 0 && all0.All(r => r.Done);
-        _empty.gameObject.SetActive(rows.Count == 0 || all);
-        if (rows.Count == 0 || all) _empty.text = L.PinDone;
+        _empty.gameObject.SetActive(Pin.Gather && (rows.Count == 0 || all));
+        if (rows.Count == 0 || all) _empty.text = !Pin.HasSnapshot ? L.PinStale : L.PinDone;
 
         int shown = Mathf.Min(rows.Count, Mathf.Max(1, MaxRows));
         for (int i = 0; i < shown; i++) {
@@ -344,6 +411,24 @@ public static class PinHud {
         if (OnScaled != null) OnScaled(Scale);
     }
 
+    static void Active(GameObject go, bool on) { if (go.activeSelf != on) go.SetActive(on); }
+
+    /// <summary>Часть «План»: по строке на позицию, как в окне.</summary>
+    static void ShowPlan() {
+        var cart = Pin.Plan ? Planner.Cart : new List<Entry>();
+        var owned = Planner.UseOwned && cart.Count > 0 ? Stock.Owned() : null;
+        int shown = Mathf.Min(cart.Count, Mathf.Max(1, MaxRows));
+        for (int i = 0; i < shown; i++) {
+            if (i >= _planRows.Count) _planRows.Add(new PlanRow(_planList));
+            _planRows[i].Show(cart[i], Planner.MadeOf(cart[i], owned));
+        }
+        for (int i = shown; i < _planRows.Count; i++) _planRows[i].Hide();
+        int rest = cart.Count - shown;
+        Active(_planMore.gameObject, rest > 0);
+        if (rest > 0) _planMore.text = L.PinMore + rest;
+        Active(_planList.gameObject, cart.Count > 0);
+    }
+
     static void ShowIcons() {
         var ids = Pin.Items.Select(e => e.Id).Distinct().ToList();
         int shown = 0;
@@ -356,29 +441,49 @@ public static class PinHud {
         }
         int rest = ids.Count - Mathf.Min(ids.Count, _iconPool.Count);
         _iconsMore.text = rest > 0 ? "+" + rest : "";
-        bool any = shown > 0 || rest > 0;
+        // Иконки отвечают на «это на что?», а с закреплённым планом ответ и
+        // так виден строками выше.
+        bool any = (shown > 0 || rest > 0) && !Pin.Plan;
         if (_icons.gameObject.activeSelf != any) _icons.gameObject.SetActive(any);
     }
 
     /// <summary>Строка «иконка — название — сколько ещё».</summary>
+    /// <summary>
+    /// Строка материала. Числами: название и сколько ещё добыть, больше
+    /// ничего. Полосами: название сверху, под ним полоса «сундуки, рюкзак,
+    /// ещё добыть» с числами внутри; итога нет, он и так сложим из частей.
+    /// </summary>
     class Row {
-        readonly GameObject _go;
+        readonly GameObject _go, _barLine;
         readonly Image _icon;
         readonly TextMeshProUGUI _name, _need;
+        readonly Bar _bar;
 
         public Row(Transform parent) {
-            var rt = UiKit.Row(parent, "row", 20f);
+            var rt = UiKit.Rect(parent, "row");
             _go = rt.gameObject;
-            UiKit.Horizontal(rt, 6);
-            _icon = UiKit.Icon(rt, null, 18f);
-            _name = UiKit.Label(rt, "name", "", 13f, UiKit.Ink);
+            var v = _go.AddComponent<VerticalLayoutGroup>();
+            v.spacing = 2;
+            v.childControlHeight = true;
+            v.childControlWidth = true;
+            v.childForceExpandHeight = false;
+            v.childForceExpandWidth = true;
+
+            var top = UiKit.Row(rt, "line", 20f);
+            UiKit.Horizontal(top, 6);
+            _icon = UiKit.Icon(top, null, 18f);
+            _name = UiKit.Label(top, "name", "", 13f, UiKit.Ink);
             _name.gameObject.AddComponent<LayoutElement>().flexibleWidth = 1;
-            _need = UiKit.Label(rt, "need", "", 13f, UiKit.Gold,
+            _need = UiKit.Label(top, "need", "", 13f, UiKit.Gold,
                                 TextAlignmentOptions.Right);
-            // Под «10 / 156» с запасом: раньше тут стояло одно число.
             var le = _need.gameObject.AddComponent<LayoutElement>();
-            le.preferredWidth = 74;
+            le.preferredWidth = 40;
             le.minWidth = 0;
+
+            var line = UiKit.Row(rt, "bar-line", 14f);
+            UiKit.Horizontal(line, 0, 24, 0);
+            _bar = new Bar(line, 14f, 10f);
+            _barLine = line.gameObject;
         }
 
         public void Show(Pin.MatRow r) {
@@ -386,11 +491,52 @@ public static class PinHud {
             _icon.sprite = it != null ? it.Icon : null;
             _icon.color = _icon.sprite != null ? Color.white : Color.clear;
             _name.text = GameData.NameOf(r.Id);
-            _need.text = r.Have + " / " + r.Need;
+            _need.text = Mathf.Max(0, r.Left).ToString();
+            if (_need.gameObject.activeSelf == Bars) _need.gameObject.SetActive(!Bars);
+            if (_barLine.activeSelf != Bars) _barLine.SetActive(Bars);
+            if (Bars) _bar.Set(r.Chests, r.Bag, Mathf.Max(0, r.Left));
             // Собранное гаснет целиком, вместе с названием: строка должна
             // читаться как вычеркнутая, а не как «тут что-то не так с числом».
             _need.color = r.Done ? UiKit.Faint : UiKit.Gold;
             _name.color = r.Done ? UiKit.Faint : UiKit.Ink;
+            if (!_go.activeSelf) _go.SetActive(true);
+        }
+
+        public void Hide() { if (_go.activeSelf) _go.SetActive(false); }
+    }
+
+    /// <summary>Строка «иконка, название, сколько и какого уровня».</summary>
+    class PlanRow {
+        readonly GameObject _go;
+        readonly Image _icon;
+        readonly TextMeshProUGUI _name, _what;
+
+        public PlanRow(Transform parent) {
+            var rt = UiKit.Row(parent, "plan-row", 20f);
+            _go = rt.gameObject;
+            UiKit.Horizontal(rt, 6);
+            _icon = UiKit.Icon(rt, null, 18f);
+            _name = UiKit.Label(rt, "name", "", 13f, UiKit.Ink);
+            _name.gameObject.AddComponent<LayoutElement>().flexibleWidth = 1;
+            _what = UiKit.Label(rt, "what", "", 13f, UiKit.Gold, TextAlignmentOptions.Right);
+            var le = _what.gameObject.AddComponent<LayoutElement>();
+            le.preferredWidth = 74;
+            le.minWidth = 0;
+        }
+
+        /// <param name="made">Уровни уже сделанного, см. Planner.MadeOf.</param>
+        public void Show(Entry e, List<int> made) {
+            var it = GameData.Get(e.Id);
+            _icon.sprite = it != null ? it.Icon : null;
+            _icon.color = _icon.sprite != null ? Color.white : Color.clear;
+            _name.text = it != null ? it.Shown : e.Id;
+            bool levels = it != null && it.MaxQuality > 1;
+            _what.text = L.PinPlanRow(e.Qty, levels ? e.Quality : 0);
+            // Всё заказанное уже есть на нужном уровне: строка гаснет, как
+            // собранное в «Нужно собрать».
+            bool done = made.Count(h => h >= e.Quality) >= e.Qty;
+            _what.color = done ? UiKit.Faint : UiKit.Gold;
+            _name.color = done ? UiKit.Faint : UiKit.Ink;
             if (!_go.activeSelf) _go.SetActive(true);
         }
 

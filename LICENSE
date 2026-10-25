@@ -1,6 +1,7 @@
 MIT License
 
 Copyright (c) 2026 Biozip
+Copyright (c) 2026 JimmyMcAttaboy (Provisioner changes)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -27,19 +28,11 @@ the running game at load time and are not redistributed. Valheim is the
 property of Iron Gate Studio; this project is not affiliated with or endorsed
 by Iron Gate Studio or Coffee Stain Publishing.
 
-The screenshots in `media/` of the source repository show the mod's window
-inside the running game, and therefore show Valheim's own interface around it.
-They document the mod; the game and its art remain Iron Gate's. They are not
-part of the distributed plugin.
+Provisioner is a fork of ForgePlanner by Biozip
+(https://github.com/Biozip/ForgePlanner). It keeps ForgePlanner's licence and
+copyright notice above.
 
-The package icon, `icon.png`, is rasterised from `icon.svg` by `make_icon.py`.
-Both are the author's own drawing, shared with the ForgePlanner website so that
-the project looks the same wherever it is listed; no game art is involved.
-
-The only other images bundled with this mod are the six in `art/`: five link
-icons and a direction arrow drawn for this project. The globe, the Nexus Mods
-mark and the Steam mark are recoloured from public domain sources; the
-Thunderstore and Hexium marks are reduced to plain white silhouettes of the
-sites' own logos. The Nexus Mods, Steam, Thunderstore and Hexium marks are
-trademarks of their respective owners and are used here only to point at this
-project's pages on those sites; no endorsement is implied.
+The images bundled with this mod are the five in `art/`: a direction arrow
+drawn by Biozip for ForgePlanner, and a pin, a refresh arrow, a gear and a bin
+drawn for Provisioner. The package icon, `provisioner/icon.png`, was drawn for
+Provisioner. No game art and no other site's marks are included.
