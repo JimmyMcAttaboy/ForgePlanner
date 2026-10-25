@@ -270,8 +270,8 @@ public static class PinHud {
         tle.minWidth = 0;
         var tools = UiKit.Rect(head, "tools");
         UiKit.Horizontal(tools, 3);
-        // \u041f\u0435\u0440\u0435\u0441\u0447\u0438\u0442\u0430\u0442\u044c \u00ab\u041d\u0443\u0436\u043d\u043e \u0441\u043e\u0431\u0440\u0430\u0442\u044c\u00bb, \u043d\u0435 \u043e\u0442\u043a\u0440\u044b\u0432\u0430\u044f \u043e\u043a\u043d\u0430: \u0432\u0435\u0440\u043d\u0443\u043b\u0441\u044f \u043a \u0441\u0443\u043d\u0434\u0443\u043a\u0430\u043c,
-        // \u043e\u0442\u043a\u0440\u044b\u043b Esc, \u043d\u0430\u0436\u0430\u043b. \u0412\u0438\u0434\u043d\u0430, \u0442\u043e\u043b\u044c\u043a\u043e \u043f\u043e\u043a\u0430 \u044d\u0442\u0430 \u0447\u0430\u0441\u0442\u044c \u0437\u0430\u043a\u0440\u0435\u043f\u043b\u0435\u043d\u0430.
+        // Пересчитать «Нужно собрать», не открывая окна: вернулся к сундукам,
+        // открыл Esc, нажал. Видна, только пока эта часть закреплена.
         var refresh = UiKit.Button(tools, "", 22, 18, () => { Pin.Snapshot(); _dirty = true; });
         var rrt = UiKit.Rect((RectTransform)refresh.transform, "icon");
         rrt.anchorMin = rrt.anchorMax = rrt.pivot = new Vector2(0.5f, 0.5f);
