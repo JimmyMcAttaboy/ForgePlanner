@@ -40,7 +40,7 @@ of going quietly stale.
 - **Buildings too.** Walls, floors, workstations — the hammer menu is in the
   same catalogue.
 - **An item card on hover**, compared with what you wear. See below.
-- **Pin the plan** and keep it on screen while you gather. See below.
+- **Pin the plan, the shopping list or both** and keep them on screen while you gather. See below.
 - **Works with PlanBuild:** its plan totems go into the plan. See below.
 - **Filter by biome**, with the same colours as the website.
 - **Search and eight tabs:** All, plus Weapons, Armour, Tools, Food, Materials,
@@ -93,19 +93,28 @@ The marks are part of the plan: they are saved with it and pinned with it.
 
 ## Pin the plan
 
-**Pin the plan and close the window.** A copy of it stays on screen in a small
-panel and fills in as you gather — `1 / 10`, so you can see both how far along
-you are and how far there is to go. It counts your backpack only: the window
-counts nearby chests as well, but out in the field the question is whether you
-have it on you, not whether it is somewhere at home. It is a copy on purpose:
-wiping the plan to price up something else does not wipe what you pinned.
-Clicks pass straight through it. While the Esc menu is open you can drag it
-somewhere else, make it bigger or smaller with **−** and **+**, or unpin it
-with **×**.
+Both lists in the window have a **pin** next to their title: **Craft plan** and
+**To gather**. Pin one or both and close the window; they stay on screen in a
+small panel. Gold means pinned.
 
-Under the title, the icons of what you pinned, so a line like **Stone 0 / 94**
-says what it is for. Gathered lines sink to the bottom and dim; set
-**HideGathered** in the config to drop them from the panel altogether.
+**The pinned plan follows the window.** Change a level or a quantity and the
+panel changes with it. Clear the plan and the panel empties.
+
+**The pinned To gather list remembers what you were short.** Pin it at your base
+and it counts your backpack and nearby chests, then keeps only what is missing.
+Out in the field the totals stay put and fill in as you pick things up:
+`12 / 58`. Back at your chests, press the **refresh** arrow next to the pin to
+count again. If you change the plan after pinning, the arrow turns gold and the
+panel title says so.
+
+Clicks pass straight through the panel. While the Esc menu is open you can drag
+it somewhere else, recount with the refresh arrow, make it bigger or smaller
+with **−** and **+**, or unpin everything with **×**.
+
+When only To gather is pinned, the icons of what is planned sit under the title,
+so a line like **Stone 0 / 94** says what it is for. Gathered lines sink to the
+bottom and dim; set **HideGathered** in the config to drop them from the panel
+altogether.
 
 ![The pinned plan next to the minimap](media/05-pinned.png)
 

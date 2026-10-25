@@ -119,16 +119,33 @@ public static class PlanStore {
            # ForgePlanner
            [plan]
            swordiron	4	2	1,1,0,0
-           [pin]
-           swordiron	4	2	1,1,0,0
+           [pinned]
+           plan
+           gather
+           [gather]
+           sig	-1234567
+           wolfpelt	58	2
 
-       id, сколько, уровень, уровни уже сделанных экземпляров. */
+       id, сколько, уровень, уровни уже сделанных экземпляров. В [pinned]:
+       какие части плана закреплены. В [gather]: снимок недостачи (id,
+       сколько не хватало, сколько было в рюкзаке) и отпечаток плана, по
+       которому он снят, см. Pin.Snapshot. Старый раздел [pin] (копия плана
+       до того, как закреплённое стало самим планом) читается как «gather». */
 
     static string Snapshot() {
         var sb = new StringBuilder();
         sb.Append(Header).Append('\n');
         Write(sb, "[plan]", Planner.Cart);
-        Write(sb, "[pin]", Pin.Items);
+        sb.Append("[pinned]").Append('\n');
+        if (Pin.Plan) sb.Append("plan").Append('\n');
+        if (Pin.Gather) sb.Append("gather").Append('\n');
+        if (Pin.Gather) {
+            sb.Append("[gather]").Append('\n');
+            sb.Append("sig").Append('\t').Append(Pin.TargetsOf).Append('\n');
+            foreach (var kv in Pin.Targets)
+                sb.Append(kv.Key).Append('\t').Append(kv.Value.Need)
+                  .Append('\t').Append(kv.Value.Bag).Append('\n');
+        }
         return sb.ToString();
     }
 
@@ -151,12 +168,31 @@ public static class PlanStore {
         var plan = new List<Entry>();
         var pin = new List<Entry>();
         List<Entry> into = null;
+        bool flags = false, gather = false, pinPlan = false, pinGather = false;
+        var targets = new Dictionary<string, Pin.Target>();
+        int targetsOf = 0;
         try {
             foreach (var raw in File.ReadAllLines(_path)) {
                 var line = raw.Trim();
                 if (line.Length == 0 || line.StartsWith("#")) continue;
-                if (line == "[plan]") { into = plan; continue; }
-                if (line == "[pin]") { into = pin; continue; }
+                if (line == "[plan]") { into = plan; flags = gather = false; continue; }
+                if (line == "[pin]") { into = pin; flags = gather = false; continue; }
+                if (line == "[pinned]") { into = null; flags = true; gather = false; continue; }
+                if (line == "[gather]") { into = null; flags = false; gather = true; continue; }
+                if (flags) {
+                    if (line == "plan") pinPlan = true;
+                    else if (line == "gather") pinGather = true;
+                    continue;
+                }
+                if (gather) {
+                    var f = raw.Split('\t');
+                    int a, b = 0;
+                    if (f.Length < 2 || !int.TryParse(f[1], out a)) continue;
+                    if (f[0] == "sig") { targetsOf = a; continue; }
+                    if (f.Length > 2) int.TryParse(f[2], out b);
+                    if (a > 0) targets[f[0]] = new Pin.Target { Need = a, Bag = Mathf.Max(0, b) };
+                    continue;
+                }
                 var e = Parse(raw);
                 if (e != null && into != null) into.Add(e);
             }
@@ -168,13 +204,18 @@ public static class PlanStore {
         // строку, которая никогда не наполнится.
         if (!PlanTotems.Available) {
             plan.RemoveAll(e => PlanTotems.IsTotem(e.Id));
-            pin.RemoveAll(e => PlanTotems.IsTotem(e.Id));
         }
         Planner.Cart.Clear();
         Planner.Cart.AddRange(plan);
-        Pin.Set(pin);
-        ForgeplanPlugin.Log.LogInfo("план загружен: позиций " + plan.Count + ", закреплено "
-                                    + pin.Count + " — " + Path.GetFileName(_path));
+        if (pin.Count > 0) pinGather = true;
+        Pin.Set(pinPlan, pinGather);
+        // Снимок из файла. Нет его (файл из старой версии): TargetsOf
+        // остаётся 0, и подсказка снимет недостачу сама, когда игрок появится.
+        Pin.Targets.Clear();
+        if (pinGather) foreach (var kv in targets) Pin.Targets[kv.Key] = kv.Value;
+        Pin.TargetsOf = pinGather ? targetsOf : 0;
+        ForgeplanPlugin.Log.LogInfo("план загружен: позиций " + plan.Count + ", закреплено: план "
+                                    + pinPlan + ", собрать " + pinGather + ": " + Path.GetFileName(_path));
     }
 
     static Entry Parse(string line) {

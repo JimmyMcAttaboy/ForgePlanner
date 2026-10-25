@@ -67,7 +67,8 @@ public class PlannerPanel {
     TMP_InputField _search;
     TextMeshProUGUI _found, _hint, _cartCount;
     RectTransform _catalog, _cart, _totals;
-    Button _rawBtn, _directBtn, _coalBtn, _woodCoalBtn, _haveBtn, _pinBtn;
+    Button _rawBtn, _directBtn, _coalBtn, _woodCoalBtn, _haveBtn;
+    Image _pinPlan, _pinGather, _refreshGather;
 
     readonly List<CatalogRow> _catalogRows = new List<CatalogRow>();
     readonly List<CartRow> _cartRows = new List<CartRow>();
@@ -490,17 +491,12 @@ public class PlannerPanel {
 
         var cartHead = UiKit.Row(right, "cart-head", 30);
         UiKit.Horizontal(cartHead, 8);
-        UiKit.Label(cartHead, "cart-title", L.CraftPlan, 20, UiKit.Gold)
-             .gameObject.AddComponent<LayoutElement>().flexibleWidth = 1;
-        // Закрепляется план целиком, а не строка по отдельности. Закрепляют
-        // то, что уже настроено — с количеством и качеством, — а в каталоге
-        // ни того, ни другого ещё нет. Одна кнопка вместо двух означает, что
-        // на вопрос «что сейчас закреплено» есть ровно один ответ.
-        _pinBtn = UiKit.Button(cartHead, L.PinPlan, 112, 24, () => {
-            if (Pin.SameAs(Planner.Cart)) Pin.Clear();
-            else Pin.Set(Planner.Cart);
-            _planDirty = true;
-        });
+        UiKit.Label(cartHead, "cart-title", L.CraftPlan, 20, UiKit.Gold);
+        // Булавка у заголовка: закрепить эту часть на экране. Золотая:
+        // закреплено, серая: нет.
+        _pinPlan = PinToggle(cartHead, () => { Pin.TogglePlan(); _planDirty = true; });
+        UiKit.Rect(cartHead, "spacer").gameObject
+             .AddComponent<LayoutElement>().flexibleWidth = 1;
         // Тотем PlanBuild — только если PlanBuild стоит: кнопка, которая всегда
         // отвечает «тотемов нет», — лишний шум для всех остальных.
         if (PlanTotems.Available)
@@ -528,14 +524,37 @@ public class PlannerPanel {
 
         BuildToggles(right);
 
-        UiKit.Label(right, "totals-title", L.ToGather, 20, UiKit.Gold)
-             .gameObject.AddComponent<LayoutElement>().minHeight = 26;
+        var totalsHead = UiKit.Row(right, "totals-head", 26);
+        UiKit.Horizontal(totalsHead, 8);
+        UiKit.Label(totalsHead, "totals-title", L.ToGather, 20, UiKit.Gold);
+        _pinGather = PinToggle(totalsHead, () => { Pin.ToggleGather(); _planDirty = true; });
+        // Пересчитать закреплённую недостачу: нажимают дома, у сундуков.
+        _refreshGather = PinToggle(totalsHead, () => { Pin.Snapshot(); _planDirty = true; }, "refresh");
 
         var totalsFrame = UiKit.Rect(right, "totals-frame");
         var tle = totalsFrame.gameObject.AddComponent<LayoutElement>();
         tle.flexibleHeight = 1.5f;
         tle.minHeight = 180;
         _totals = UiKit.ScrollBox(totalsFrame, 3);
+    }
+
+    /// <summary>Булавка-переключатель у заголовка части. Без рамки кнопки:
+    /// это значок, а не ещё одна кнопка в ряду.</summary>
+    static Image PinToggle(Transform parent, System.Action onClick, string art = "pin") {
+        var icon = UiKit.Icon(parent, Art.Get(art), 20);
+        icon.color = UiKit.Dim;
+        icon.raycastTarget = true;
+        var btn = icon.gameObject.AddComponent<Button>();
+        btn.transition = Selectable.Transition.None;
+        btn.onClick.AddListener(() => onClick());
+        var hover = icon.gameObject.AddComponent<Hover>();
+        hover.Enter = () => icon.transform.localScale = Vector3.one * 1.15f;
+        hover.Exit = () => icon.transform.localScale = Vector3.one;
+        return icon;
+    }
+
+    static void MarkPin(Image icon, bool on) {
+        if (icon != null) icon.color = on ? UiKit.Gold : UiKit.Dim;
     }
 
     /* Размеры блоков строки плана. Общие для строки и подписей над списком:
@@ -752,11 +771,17 @@ public class PlannerPanel {
         Mark(_woodCoalBtn, Planner.BurnCoalFromWood);
         Mark(_haveBtn, _countHave);
 
-        bool pinned = Pin.SameAs(Planner.Cart);
-        Mark(_pinBtn, pinned);
-        if (_pinBtn != null)
-            foreach (var t in _pinBtn.GetComponentsInChildren<TMP_Text>(true))
-                t.text = pinned ? L.Unpin : L.PinPlan;
+        bool pinned = Pin.Any && Planner.Cart.Count > 0;
+        MarkPin(_pinPlan, Pin.Plan);
+        MarkPin(_pinGather, Pin.Gather);
+        if (_refreshGather != null) {
+            if (_refreshGather.gameObject.activeSelf != Pin.Gather)
+                _refreshGather.gameObject.SetActive(Pin.Gather);
+            // Золотом, когда план правили после снимка: пора пересчитать.
+            _refreshGather.color = Pin.Stale ? UiKit.Gold : UiKit.Dim;
+        }
+        // Закреплённый план и есть план: любая правка здесь меняет подсказку.
+        Ui.PinHud.Invalidate();
         // Подсказка на экране считает по тому же переключателю, что и окно:
         // два разных разложения одного заказа сбивали бы с толку сильнее,
         // чем отсутствие у неё собственной настройки.

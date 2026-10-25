@@ -29,7 +29,6 @@ public static class L {
     /* Закреплённый список. «Pinned» и «Закреплено» — заголовок панели на
      * экране; остальное живёт на кнопках в окне. */
     public static string Pinned { get { return T("Pinned", "Закреплено"); } }
-    public static string PinPlan { get { return T("Pin", "Закрепить"); } }
 
     /* Что из плана уже сделано: строка раскрывается на экземпляры. */
     public static string MadeSummary(int n) { return T(n + " already made", "уже есть: " + n); }
@@ -58,7 +57,12 @@ public static class L {
     public static string TotemFar {
         get { return T("too far, last seen numbers", "далеко, числа последнего осмотра"); }
     }
-    public static string Unpin { get { return T("Unpin", "Открепить"); } }
+    public static string PinStale { get { return T("plan changed, refresh", "план изменён, обновите"); } }
+    /// <summary>Строка плана на закреплённой панели: «×2  ур. 4». Без уровня,
+    /// если у вещи его нет (quality = 0).</summary>
+    public static string PinPlanRow(int qty, int quality) {
+        return "×" + qty + (quality > 0 ? "  " + LevelShort + quality : "");
+    }
     public static string PinDone {
         get { return T("Everything gathered.", "Всё собрано."); }
     }
@@ -69,12 +73,14 @@ public static class L {
     }
     public static string HintPinned {
         get {
-            return T("Pinned materials stay on screen after the window closes "
-                     + "and count what is in your backpack, chests aside. Open "
-                     + "the Esc menu to drag the panel somewhere else.",
-                     "Закреплённое остаётся на экране после закрытия окна и "
-                     + "считает то, что в рюкзаке, — сундуки не в счёт. Чтобы "
-                     + "перетащить панель, откройте меню Esc.");
+            return T("Pinned parts stay on screen after the window closes. "
+                     + "To gather keeps what you were short when you pinned it "
+                     + "and counts what you pick up. Refresh it at your base "
+                     + "to recount your chests. Open the Esc menu to drag the panel.",
+                     "Закреплённое остаётся на экране после закрытия окна. "
+                     + "«Нужно собрать» запоминает, чего не хватало при закреплении, "
+                     + "и считает, что вы подобрали. Обновите его дома, чтобы "
+                     + "пересчитать сундуки. Перетащить панель можно в меню Esc.");
         }
     }
     /* Карточка предмета при наведении. Названия характеристик свои, а не из
