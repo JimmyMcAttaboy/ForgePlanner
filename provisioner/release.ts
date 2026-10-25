@@ -18,6 +18,12 @@ if (start < 0) throw new Error(`CHANGELOG.md has no "## ${version}" section`);
 const next = log.indexOf("\n## ", start + 1);
 const notes = log.slice(start + `## ${version}\n`.length, next < 0 ? undefined : next).trim();
 
+// The repository is named explicitly: gh's default here is ForgePlanner,
+// where this release must never land.
+const url = (await $`git -C ${root} remote get-url origin`.text()).trim();
+const repo = url.replace(/^.*github\.com[:/]/, "").replace(/\.git$/, "");
+if (/^Biozip\//i.test(repo)) throw new Error(`origin is ${repo}; refusing to release there`);
+
 // The tagged commit must be on the remote, or the release would point at nothing.
 await $`git -C ${root} fetch -q origin`;
 const head = (await $`git -C ${root} rev-parse HEAD`.text()).trim();
@@ -30,5 +36,5 @@ await $`git -C ${root} push -q origin ${tag}`;
 
 const notesFile = `${root}/dist/release-notes-${version}.md`;
 await Bun.write(notesFile, notes + "\n\nProvisioner is a version of [ForgePlanner](https://github.com/Biozip/ForgePlanner) by Biozip. Install it with a mod manager from Thunderstore, or drop `plugins/Provisioner.dll` from the zip into `BepInEx/plugins`.\n");
-await $`gh release create ${tag} ${zip} --title ${"Provisioner " + version} --notes-file ${notesFile} --verify-tag`.cwd(root);
-console.log(`released ${tag}`);
+await $`gh release create ${tag} ${zip} -R ${repo} --title ${"Provisioner " + version} --notes-file ${notesFile} --verify-tag`.cwd(root);
+console.log(`released ${tag} on ${repo}`);
